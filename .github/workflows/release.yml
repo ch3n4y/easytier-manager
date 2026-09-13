@@ -6,17 +6,11 @@ on:
       - "v*"
 
 jobs:
-  macos:
-    name: macOS (${{ matrix.arch }})
+  release:
+    name: macOS Universal
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            target: aarch64-apple-darwin
-          - arch: x64
-            target: x86_64-apple-darwin
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -37,40 +31,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build package
-        run: pnpm tauri build --target ${{ matrix.target }}
+      - name: Build Universal package
+        run: pnpm tauri build --target universal-apple-darwin
 
       - name: Verify ad-hoc signature
-        run: codesign --verify --deep --strict --verbose=2 "src-tauri/target/${{ matrix.target }}/release/bundle/macos/EasyTier Desktop.app"
+        run: codesign --verify --deep --strict --verbose=2 "src-tauri/target/universal-apple-darwin/release/bundle/macos/EasyTier Desktop.app"
 
-      - name: Rename installer
-        run: mv "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/"*.dmg "EasyTier-Desktop_0.0.1_macos_${{ matrix.arch }}.dmg"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}
-          path: EasyTier-Desktop_0.0.1_macos_${{ matrix.arch }}.dmg
-          if-no-files-found: error
-
-  release:
-    name: Publish release
-    needs: macos
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: macos-*
-          path: release-assets
-          merge-multiple: true
+      - name: Prepare installer
+        run: mv "src-tauri/target/universal-apple-darwin/release/bundle/dmg/"*.dmg EasyTier-Desktop_0.0.1_macos_universal.dmg
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          release-assets/*
+          EasyTier-Desktop_0.0.1_macos_universal.dmg
           --repo "$GITHUB_REPOSITORY"
           --title "EasyTier Desktop $GITHUB_REF_NAME"
-          --notes "macOS 安装包：arm64 适用于 Apple 芯片，x64 适用于 Intel 芯片。使用 ad-hoc 签名，首次打开时 macOS 仍可能要求用户确认。"
+          --notes "macOS Universal 安装包，同时支持 Apple 芯片与 Intel 芯片。使用 ad-hoc 签名，首次打开时 macOS 仍可能要求用户确认。"
