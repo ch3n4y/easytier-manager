@@ -1,0 +1,26 @@
+[package]
+name = "easytier-desktop"
+version = "0.0.1"
+description = "EasyTier Desktop"
+authors = ["EasyTier Desktop Contributors"]
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+zip = "2"
+regex = "1"
+walkdir = "2"
+tempfile = "3"
+libc = "0.2"
+tokio = { version = "1", features = ["rt", "time"] }
+service-manager = "0.11"
+# `which` (via service-manager) accepts any home 0.5 release; newer 0.5.12
+# requires Rust 1.88 while this app's declared MSRV is 1.77.
+home = "=0.5.9"

@@ -1,0 +1,1138 @@
+/* ==========================================================================
+   EasyTier Manager — design system
+   Ported from the visual language of Codex App Manager: a single "lit object"
+   material (top bevel highlight + layered shadows + grain over a faint brand
+   ambient), oklch colour, a 4pt spacing scale and a fixed rem type ramp.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* brand — violet through blue, expressed perceptually (hue ~274) */
+  --brand-violet: oklch(0.78 0.13 286);
+  --brand-blue: oklch(0.72 0.15 264);
+  --brand-deep: oklch(0.52 0.24 266);
+
+  --r-xl: 22px;
+  --r-lg: 16px;
+  --r-md: 12px;
+  --r-sm: 9px;
+  --r-pill: 999px;
+
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* rounded humanist for warmth; mono carries every technical readout */
+  --font: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-caption: 0.6875rem; /* 11 */
+  --fs-label: 0.75rem; /* 12 */
+  --fs-sm: 0.8125rem; /* 13 */
+  --fs-body: 0.875rem; /* 14 */
+  --fs-lg: 1rem; /* 16 */
+  --fs-h2: 1.1875rem; /* 19 */
+  --fs-h1: 1.4375rem; /* 23 */
+  --fs-display: 2.375rem; /* 38 */
+
+  /* exponential decel — no bounce on real objects */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.5, 1);
+  --ease-sheet: cubic-bezier(0, 0, 0.2, 1);
+  --sheet-slide-distance: 28px;
+
+  --z-scrim: 50;
+
+  /* transparent gutter — the card's shadow must fade out inside it, or it
+     clips at the window rect and reads as a faint rectangle */
+  --window-gutter-x: 14px;
+  --window-gutter-top: 14px;
+  --window-gutter-bottom: 24px;
+
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+/* ── Dark (default) ──────────────────────────────────────────────────────── */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* near-black, faintly blue-violet so the brand feels native */
+  --bg: oklch(0.168 0.014 274);
+  --surface: oklch(0.214 0.016 274);
+  --surface-top: oklch(0.246 0.018 274);
+  --surface-2: oklch(0.252 0.018 274);
+  --surface-2-top: oklch(0.288 0.02 274);
+  --surface-3: oklch(0.305 0.02 274);
+  --surface-3-top: oklch(0.34 0.022 274);
+  --line: oklch(0.32 0.018 274);
+  --line-2: oklch(0.4 0.024 274);
+
+  --text: oklch(0.965 0.008 274);
+  --text-soft: oklch(0.74 0.02 274);
+  --text-faint: oklch(0.58 0.022 274);
+
+  --accent: oklch(0.71 0.155 274);
+  --accent-2: oklch(0.62 0.19 270);
+  --accent-deep: oklch(0.82 0.11 280);
+  --accent-ink: oklch(0.99 0.01 274);
+
+  --success: oklch(0.78 0.155 168);
+  --success-2: oklch(0.7 0.15 166);
+  --success-deep: oklch(0.85 0.13 170);
+  --amber: oklch(0.8 0.135 78);
+  --amber-deep: oklch(0.86 0.11 82);
+  --danger: oklch(0.68 0.17 24);
+  --danger-2: oklch(0.6 0.18 24);
+  --danger-deep: oklch(0.78 0.13 26);
+
+  --accent-tint: color-mix(in oklch, var(--accent) 18%, transparent);
+  --success-tint: color-mix(in oklch, var(--success) 16%, transparent);
+  --amber-tint: color-mix(in oklch, var(--amber) 16%, transparent);
+  --danger-tint: color-mix(in oklch, var(--danger) 16%, transparent);
+
+  --accent-glow: color-mix(in oklch, var(--accent) 34%, transparent);
+  --ring-focus: color-mix(in oklch, var(--accent) 55%, transparent);
+
+  /* material primitives — one light source, top-down */
+  --hl-top: inset 0 1px 0 oklch(1 0 0 / 0.07);
+  --hl-top-strong: inset 0 1px 0 oklch(1 0 0 / 0.12);
+  --shadow-1: oklch(0.12 0.03 274 / 0.5);
+  --shadow-2: oklch(0.08 0.03 274 / 0.45);
+  --shadow-3: oklch(0.05 0.02 274 / 0.6);
+
+  --elev-1: var(--hl-top), 0 1px 2px var(--shadow-1);
+  --elev-2: var(--hl-top), 0 1px 2px var(--shadow-1), 0 14px 32px -8px var(--shadow-2);
+  --elev-3: var(--hl-top-strong), 0 2px 6px var(--shadow-1),
+    0 28px 64px -10px var(--shadow-3);
+
+  --grain-opacity: 0.05;
+  --ambient: radial-gradient(
+    125% 80% at 50% -8%,
+    color-mix(in oklch, var(--accent) 9%, transparent),
+    transparent 58%
+  );
+}
+
+/* ── Light ───────────────────────────────────────────────────────────────── */
+/* Must stay after the dark block: `:root` and `[data-theme="light"]` have equal
+   specificity, so source order is what lets light win. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: oklch(0.945 0.008 274);
+  --surface: oklch(0.995 0.0025 274);
+  --surface-top: oklch(1 0 0);
+  --surface-2: oklch(0.972 0.005 274);
+  --surface-2-top: oklch(0.988 0.004 274);
+  --surface-3: oklch(0.95 0.008 274);
+  --surface-3-top: oklch(0.97 0.006 274);
+  --line: oklch(0.9 0.01 274);
+  --line-2: oklch(0.84 0.016 274);
+
+  --text: oklch(0.26 0.022 274);
+  --text-soft: oklch(0.47 0.028 274);
+  --text-faint: oklch(0.62 0.026 274);
+
+  --accent: oklch(0.56 0.2 272);
+  --accent-2: oklch(0.49 0.21 270);
+  --accent-deep: oklch(0.5 0.19 272);
+  --accent-ink: oklch(0.99 0.01 274);
+
+  --success: oklch(0.62 0.15 162);
+  --success-2: oklch(0.55 0.14 162);
+  --success-deep: oklch(0.48 0.13 162);
+  --amber: oklch(0.68 0.14 66);
+  --amber-deep: oklch(0.52 0.12 64);
+  --danger: oklch(0.57 0.2 25);
+  --danger-2: oklch(0.5 0.2 25);
+  --danger-deep: oklch(0.5 0.18 25);
+
+  --accent-tint: color-mix(in oklch, var(--accent) 12%, transparent);
+  --success-tint: color-mix(in oklch, var(--success) 13%, transparent);
+  --amber-tint: color-mix(in oklch, var(--amber) 14%, transparent);
+  --danger-tint: color-mix(in oklch, var(--danger) 12%, transparent);
+
+  --accent-glow: color-mix(in oklch, var(--accent) 24%, transparent);
+  --ring-focus: color-mix(in oklch, var(--accent) 45%, transparent);
+
+  --hl-top: inset 0 1px 0 oklch(1 0 0 / 0.9);
+  --hl-top-strong: inset 0 1px 0 oklch(1 0 0 / 1);
+  --shadow-1: oklch(0.55 0.05 274 / 0.16);
+  --shadow-2: oklch(0.5 0.06 274 / 0.13);
+  --shadow-3: oklch(0.45 0.06 274 / 0.22);
+
+  --elev-1: var(--hl-top), 0 1px 1px var(--shadow-1);
+  --elev-2: var(--hl-top), 0 1px 2px var(--shadow-1), 0 12px 28px -10px var(--shadow-2);
+  --elev-3: var(--hl-top-strong), 0 2px 6px var(--shadow-1),
+    0 26px 60px -12px var(--shadow-3);
+
+  --grain-opacity: 0.035;
+  --ambient: radial-gradient(
+    125% 80% at 50% -8%,
+    color-mix(in oklch, var(--accent) 7%, transparent),
+    transparent 58%
+  );
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+button:focus {
+  outline: none;
+}
+button:focus-visible {
+  outline: 2px solid var(--ring-focus);
+  outline-offset: 2px;
+}
+input {
+  font-family: inherit;
+}
+input:focus {
+  outline: none;
+}
+::selection {
+  background: color-mix(in oklch, var(--accent) 30%, transparent);
+}
+
+/* The window is transparent: the gutter is what the card shadows fade into. */
+#root {
+  padding: var(--window-gutter-top) var(--window-gutter-x) var(--window-gutter-bottom);
+}
+
+/* Rail and stage are one window shell. Keeping their outer shadow on a shared
+   wrapper prevents a transparent seam from appearing between both regions. */
+.shell {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), 0 6px 16px var(--shadow-2),
+    0 1px 3px var(--shadow-1);
+}
+
+.shell > .pop {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ── Card material ───────────────────────────────────────────────────────── */
+.pop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* own stacking context so the grain (z-index:-1) lands above the base colour
+     but beneath all in-flow content */
+  isolation: isolate;
+  background-color: var(--bg);
+  background-image: var(--ambient);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), 0 6px 16px var(--shadow-2),
+    0 1px 3px var(--shadow-1);
+}
+/* tactile, non-flat surface — a whisper of grain over the whole card */
+.pop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--grain);
+  background-size: 160px 160px;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+/* ── Shell ───────────────────────────────────────────────────────────────── */
+.rail {
+  flex: 0 0 208px;
+  padding: var(--space-sm) 10px;
+  gap: 2px;
+  border-right: 1px solid var(--line);
+  animation: rail-in 0.4s var(--ease-out);
+}
+.stage {
+  flex: 1;
+  min-width: 0;
+  animation: risein 0.42s var(--ease-out) both;
+}
+
+@keyframes rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+@keyframes risein {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes sheet-rise {
+  from {
+    transform: translate3d(0, var(--sheet-slide-distance), 0);
+    opacity: 0;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .stage,
+  .view > * {
+    animation: none;
+  }
+}
+
+/* ── Rail ────────────────────────────────────────────────────────────────── */
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 4px 12px;
+}
+.mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--brand-violet), var(--brand-blue));
+  color: var(--accent-ink);
+  font-size: var(--fs-caption);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.32),
+    0 6px 16px -4px var(--accent-glow);
+}
+.wordmark {
+  font-weight: 680;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+.rail-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-spacer {
+  flex: 1;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: var(--fs-body);
+  font-weight: 550;
+  text-align: start;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease),
+    border-color 0.18s var(--ease), transform 0.08s var(--ease);
+}
+.rail-item:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.rail-item:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.rail-item.active {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text);
+  box-shadow: var(--elev-1);
+}
+.rail-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rail-item svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.rail-foot {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-xs);
+  margin-top: var(--space-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+/* ── Type ────────────────────────────────────────────────────────────────── */
+h1 {
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+h2 {
+  font-size: var(--fs-h2);
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+h3 {
+  font-size: var(--fs-lg);
+  font-weight: 660;
+  letter-spacing: -0.008em;
+}
+.kicker {
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.muted {
+  color: var(--text-soft);
+}
+.faint {
+  color: var(--text-faint);
+}
+.mono {
+  font-family: var(--mono);
+  font-variant-ligatures: none;
+}
+
+/* ── Stage chrome ────────────────────────────────────────────────────────── */
+.stage-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg) var(--space-sm);
+  border-bottom: 1px solid var(--line);
+}
+.stage-head .titles {
+  flex: 1;
+  min-width: 0;
+}
+.stage-head h2 {
+  line-height: 1.2;
+}
+.stage-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-lg);
+}
+.scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.stage-notice {
+  position: absolute;
+  right: var(--space-md);
+  bottom: var(--space-md);
+  z-index: 5;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 7px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+  box-shadow: var(--elev-2);
+  color: var(--text-soft);
+  font-size: var(--fs-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: risein 0.22s var(--ease-out) both;
+}
+.stage-notice.error {
+  color: var(--danger-deep);
+  border-color: color-mix(in oklch, var(--danger) 35%, transparent);
+}
+
+/* Views stagger their entrance. */
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.view > * {
+  animation: risein 0.46s var(--ease-out) both;
+}
+.view > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.view > *:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.view > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.view > *:nth-child(4) {
+  animation-delay: 0.17s;
+}
+.view > *:nth-child(n + 5) {
+  animation-delay: 0.2s;
+}
+
+/* ── Panels ──────────────────────────────────────────────────────────────── */
+.panel {
+  background: linear-gradient(180deg, var(--surface-top), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+}
+.panel-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.panel-head h3 {
+  font-size: var(--fs-body);
+}
+.panel-head p {
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+.panel-head.actions-only {
+  justify-content: flex-end;
+}
+.panel-body {
+  padding: var(--space-md);
+}
+
+/* ── Rows ────────────────────────────────────────────────────────────────── */
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 11px var(--space-md);
+  border-bottom: 1px solid var(--line);
+  min-height: 46px;
+}
+.row:last-child {
+  border-bottom: none;
+}
+.row .label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.row .label strong {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text);
+}
+.row .label span {
+  display: block;
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+.row .value {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: end;
+}
+
+/* ── Hero / medallion ────────────────────────────────────────────────────── */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+}
+.hero-copy {
+  flex: 1;
+  min-width: 0;
+}
+.hero-copy h1 {
+  margin: 2px 0 4px;
+}
+.hero-copy .sub {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.hero-copy .server {
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The signature element: a glowing, embossed medallion lit from the top. */
+.ring {
+  --ring-color: var(--accent);
+  --ring-soft: var(--accent-tint);
+  width: 92px;
+  height: 92px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ring-color);
+  background: radial-gradient(
+    115% 115% at 50% 30%,
+    color-mix(in oklch, var(--ring-color) 22%, var(--surface)) 0%,
+    var(--surface) 72%
+  );
+  border: 1px solid color-mix(in oklch, var(--ring-color) 45%, var(--line-2));
+  box-shadow: var(--hl-top-strong),
+    inset 0 -16px 26px -12px color-mix(in oklch, var(--ring-color) 38%, transparent),
+    0 0 0 5px var(--ring-soft),
+    0 14px 34px -8px color-mix(in oklch, var(--ring-color) 40%, transparent),
+    0 8px 20px var(--shadow-2);
+  transition: box-shadow 0.3s var(--ease);
+}
+.ring svg {
+  width: 38px;
+  height: 38px;
+  filter: drop-shadow(0 2px 5px color-mix(in oklch, var(--ring-color) 30%, transparent));
+}
+.ring.success {
+  --ring-color: var(--success);
+  --ring-soft: var(--success-tint);
+}
+.ring.amber {
+  --ring-color: var(--amber);
+  --ring-soft: var(--amber-tint);
+}
+.ring.danger {
+  --ring-color: var(--danger);
+  --ring-soft: var(--danger-tint);
+}
+/* muted: a calm, recessed disc — no emitted light */
+.ring.muted {
+  --ring-color: var(--text-faint);
+  background: radial-gradient(115% 115% at 50% 30%, var(--surface-top), var(--surface));
+  border-color: var(--line-2);
+  box-shadow: var(--hl-top), inset 0 -14px 24px -14px var(--shadow-1),
+    0 8px 20px -10px var(--shadow-2);
+  color: var(--text-faint);
+}
+.ring.muted svg {
+  filter: none;
+}
+.ring.busy svg {
+  animation: spin 1s linear infinite;
+  transform-origin: center;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.badge.success {
+  background: var(--success-tint);
+  color: var(--success-deep);
+  border-color: color-mix(in oklch, var(--success) 32%, transparent);
+}
+.badge.amber {
+  background: var(--amber-tint);
+  color: var(--amber-deep);
+  border-color: color-mix(in oklch, var(--amber) 32%, transparent);
+}
+.badge.danger {
+  background: var(--danger-tint);
+  color: var(--danger-deep);
+  border-color: color-mix(in oklch, var(--danger) 32%, transparent);
+}
+.badge.muted {
+  background: var(--surface-3);
+  color: var(--text-faint);
+  border-color: var(--line);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, var(--surface-2-top), var(--surface-2));
+  color: var(--text);
+  border-radius: var(--r-md);
+  padding: 11px 16px;
+  font-size: var(--fs-body);
+  font-weight: 640;
+  letter-spacing: -0.005em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  box-shadow: var(--elev-1);
+  transition: transform 0.09s var(--ease), background 0.18s var(--ease),
+    border-color 0.18s var(--ease), box-shadow 0.2s var(--ease), opacity 0.18s;
+}
+.btn svg {
+  width: 16px;
+  height: 16px;
+}
+.btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--surface-3-top), var(--surface-3));
+  box-shadow: var(--elev-2);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.99);
+  box-shadow: inset 0 1px 3px var(--shadow-1);
+}
+.btn:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: default;
+}
+.btn.big {
+  padding: 13px 18px;
+  font-size: var(--fs-lg);
+  border-radius: var(--r-lg);
+}
+.btn.sm {
+  padding: 7px 12px;
+  font-size: var(--fs-label);
+  border-radius: var(--r-sm);
+  gap: 5px;
+}
+.btn.sm svg {
+  width: 14px;
+  height: 14px;
+}
+.btn.primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--accent) 86%, white),
+    var(--accent-2)
+  );
+  border-color: transparent;
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.32), 0 6px 18px -3px var(--accent-glow),
+    0 1px 2px var(--shadow-1);
+}
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--accent) 70%, white),
+    var(--accent-2)
+  );
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.4),
+    0 9px 26px -4px color-mix(in oklch, var(--accent) 48%, transparent),
+    0 1px 2px var(--shadow-1);
+}
+.btn.primary:active:not(:disabled) {
+  box-shadow: inset 0 2px 5px oklch(0.2 0.08 274 / 0.45);
+}
+.btn.danger {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--danger) 88%, white),
+    var(--danger-2)
+  );
+  border-color: transparent;
+  color: oklch(0.99 0.01 24);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.3),
+    0 6px 18px -3px color-mix(in oklch, var(--danger) 38%, transparent),
+    0 1px 2px var(--shadow-1);
+}
+.btn.danger:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--danger) 72%, white),
+    var(--danger-2)
+  );
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.38),
+    0 9px 26px -4px color-mix(in oklch, var(--danger) 46%, transparent),
+    0 1px 2px var(--shadow-1);
+}
+.btn.danger:disabled {
+  opacity: 1;
+  background: linear-gradient(180deg, var(--surface-2-top), var(--surface-2));
+  border-color: var(--line);
+  color: var(--text-faint);
+  box-shadow: var(--elev-1);
+}
+.btn.ghost {
+  background: transparent;
+  border-color: var(--line-2);
+  box-shadow: none;
+}
+.btn.ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: var(--elev-1);
+}
+
+.iconbtn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-soft);
+  display: grid;
+  place-items: center;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease),
+    border-color 0.18s var(--ease), transform 0.08s var(--ease);
+}
+.iconbtn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text);
+}
+.iconbtn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.iconbtn svg {
+  width: 17px;
+  height: 17px;
+}
+.iconbtn.close:hover:not(:disabled) {
+  background: var(--danger-tint);
+  border-color: color-mix(in oklch, var(--danger) 40%, transparent);
+  color: var(--danger-deep);
+}
+
+/* ── Segmented control ───────────────────────────────────────────────────── */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 3px var(--shadow-1);
+}
+.seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: var(--fs-label);
+  font-weight: 640;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+.seg button svg {
+  width: 14px;
+  height: 14px;
+}
+.seg button:hover:not(.active) {
+  color: var(--text);
+}
+.seg button.active {
+  background: linear-gradient(180deg, var(--surface-2-top), var(--surface-2));
+  color: var(--text);
+  box-shadow: var(--elev-1);
+}
+
+/* ── Fields ──────────────────────────────────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field > span {
+  font-size: var(--fs-label);
+  font-weight: 640;
+  color: var(--text-soft);
+}
+.field input {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-2);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-body);
+  font-family: var(--mono);
+  user-select: text;
+  box-shadow: inset 0 1px 3px var(--shadow-1);
+  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+.field input::placeholder {
+  color: var(--text-faint);
+}
+.field input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 3px var(--shadow-1), 0 0 0 3px var(--ring-focus);
+}
+.field .hint {
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+.actions .push {
+  margin-left: auto;
+}
+
+/* ── Log viewer ──────────────────────────────────────────────────────────── */
+.logs {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-md);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: auto;
+  user-select: text;
+  cursor: text;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 3px var(--shadow-1);
+}
+.logs::-webkit-scrollbar {
+  width: 10px;
+}
+.logs::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.logs-empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-family: var(--font);
+}
+
+/* ── Sheet ───────────────────────────────────────────────────────────────── */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklch, var(--bg) 55%, transparent);
+  backdrop-filter: blur(7px) saturate(1.1);
+  -webkit-backdrop-filter: blur(7px) saturate(1.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  z-index: var(--z-scrim);
+  animation: fade 0.18s var(--ease);
+}
+.sheet {
+  width: min(460px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--surface-top), var(--surface));
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xl);
+  box-shadow: var(--elev-3);
+  animation: sheet-rise 0.32s var(--ease-sheet) both;
+}
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+}
+.sheet-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.sheet-head h3 {
+  font-size: var(--fs-h2);
+}
+.sheet-head p {
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+  margin-top: 3px;
+}
+.sheet-body {
+  padding: 0 var(--space-md) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  overflow-y: auto;
+}
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  border-top: 1px solid var(--line);
+}
+.sheet-foot .push {
+  margin-left: auto;
+}
+
+/* ── Window drag ─────────────────────────────────────────────────────────── */
+[data-app-drag] {
+  cursor: default;
+}
+
+/* ── Composed blocks ─────────────────────────────────────────────────────── */
+/* The hero's own padding stops at the copy; the action row is a footer band. */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  border-top: 1px solid var(--line);
+}
+.hero-actions .btn {
+  flex: 1 1 auto;
+}
+
+.panel-body.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.hint {
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+}
+
+/* A view whose single panel fills the stage (the log viewer): the panel owns
+   the scroll, so the stage must not scroll as well. */
+.scroll.flush {
+  display: flex;
+  overflow: hidden;
+}
+.scroll.flush > .view {
+  flex: 1;
+  min-height: 0;
+}
+.panel.fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.panel.fill > .logs {
+  margin: var(--space-md);
+}
