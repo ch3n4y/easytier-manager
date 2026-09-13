@@ -1,18 +1,19 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use service_manager::{
     LaunchdServiceManager, RestartPolicy, ServiceInstallCtx, ServiceManager, ServiceStartCtx,
-    ServiceStatus, ServiceStatusCtx, ServiceUninstallCtx,
+    ServiceUninstallCtx,
 };
 
 use crate::error::{Error, Result};
 use crate::paths::{
-    core_path, pid_path, service_script_path, state_dir, INSTALL_ROOT, SERVICE_LABEL,
+    core_path, pid_path, service_plist_path, service_script_path, state_dir, INSTALL_ROOT,
+    SERVICE_LABEL,
 };
 use crate::util::file_exists;
 
@@ -90,10 +91,10 @@ fn install(manager: &LaunchdServiceManager) -> Result<()> {
 }
 
 fn start(manager: &LaunchdServiceManager) -> Result<()> {
-    if matches!(
-        manager.status(ServiceStatusCtx { label: label()? })?,
-        ServiceStatus::NotInstalled
-    ) {
+    // Decide from the plist on disk rather than `service-manager`'s status: that
+    // call passes a bare label to `launchctl print`, which is rejected for system
+    // daemons and resolved to the wrong job (see `launchd_status`).
+    if !Path::new(&service_plist_path()).exists() {
         install(manager)?;
     }
     manager.start(ServiceStartCtx { label: label()? })?;
@@ -126,21 +127,43 @@ pub fn apply_service_action(action: ServiceAction) -> Result<()> {
     }
 }
 
-/// Query the managed service through service-manager. Returns
-/// `(installed, running, pid)`.
+/// Query the managed service directly. Returns `(installed, running, pid)`.
+///
+/// `service-manager`'s status call hands a bare label to `launchctl print`,
+/// which rejects it for a system daemon and prints a "did you mean" list. The
+/// crate then latches onto the first matching line — which is our own, always
+/// running helper daemon — so the managed service permanently reported itself
+/// as running. Query the fully-qualified system target instead.
 pub fn launchd_status() -> (bool, bool, i32) {
-    let Ok(label) = label() else {
+    if !Path::new(&service_plist_path()).exists() {
         return (false, false, 0);
-    };
-    let Ok(status) = manager().status(ServiceStatusCtx { label }) else {
-        return (false, false, 0);
-    };
-
-    match status {
-        ServiceStatus::NotInstalled => (false, false, 0),
-        ServiceStatus::Stopped(_) => (true, false, 0),
-        ServiceStatus::Running => (true, true, running_pid()),
     }
+
+    if launchd_running() {
+        (true, true, running_pid())
+    } else {
+        (true, false, 0)
+    }
+}
+
+fn launchd_running() -> bool {
+    let target = format!("system/{SERVICE_LABEL}");
+    let Ok(output) = Command::new("launchctl").args(["print", &target]).output() else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+
+    parse_launchd_running(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// `launchctl print` reports the job state on a `state = <value>` line.
+fn parse_launchd_running(output: &str) -> bool {
+    output
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("state ="))
+        .any(|state| state.trim() == "running")
 }
 
 fn running_pid() -> i32 {
@@ -199,5 +222,15 @@ mod tests {
             assert!(ServiceAction::from_arg(action.as_arg()).is_some());
         }
         assert!(ServiceAction::from_arg("unknown").is_none());
+    }
+
+    #[test]
+    fn parses_launchd_job_state() {
+        assert!(parse_launchd_running("\tstate = running\n\tpid = 42\n"));
+        assert!(!parse_launchd_running("\tstate = exited\n"));
+        assert!(!parse_launchd_running("\tstate = not running\n"));
+        assert!(!parse_launchd_running(
+            "Bad request.\nCould not find service\n"
+        ));
     }
 }

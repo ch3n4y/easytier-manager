@@ -7,7 +7,6 @@ export type Status = {
   version: string;
   mode: string;
   pid: number;
-  logTail: string;
   adminReady: boolean;
   adminError: string;
 };
@@ -33,7 +32,6 @@ export const emptyStatus: Status = {
   version: '',
   mode: 'web',
   pid: 0,
-  logTail: '',
   adminReady: false,
   adminError: '',
 };

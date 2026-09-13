@@ -18,6 +18,7 @@ use crate::util::{apple_script_quote, shell_quote};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(700);
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(30);
+const READY_TIMEOUT: Duration = Duration::from_secs(2);
 const HELPER_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const HELPER_PROTOCOL_VERSION: u32 = 2;
 static HELPER_SETUP_LOCK: Mutex<()> = Mutex::new(());
@@ -37,6 +38,15 @@ struct HelperResponse {
     error: String,
     #[serde(default)]
     protocol_version: u32,
+    /// The helper binary's own app version. The daemon outlives app upgrades,
+    /// so the GUI compares this to its own version and re-installs the helper
+    /// whenever they differ, ensuring helper-side changes actually take effect.
+    #[serde(default)]
+    app_version: String,
+}
+
+fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 /// True when this process was launched as the privileged helper rather than as
@@ -88,6 +98,7 @@ fn handle_helper_conn(mut stream: UnixStream) {
             output: String::new(),
             error: err.to_string(),
             protocol_version: HELPER_PROTOCOL_VERSION,
+            app_version: app_version(),
         },
     };
 
@@ -122,6 +133,7 @@ fn run_script_request(script: String) -> HelperResponse {
                     output: combined,
                     error: String::new(),
                     protocol_version: HELPER_PROTOCOL_VERSION,
+                    app_version: app_version(),
                 }
             } else {
                 HelperResponse {
@@ -129,6 +141,7 @@ fn run_script_request(script: String) -> HelperResponse {
                     output: combined,
                     error: format!("exit status {}", output.status.code().unwrap_or(-1)),
                     protocol_version: HELPER_PROTOCOL_VERSION,
+                    app_version: app_version(),
                 }
             }
         }
@@ -142,6 +155,7 @@ fn success_response() -> HelperResponse {
         output: String::new(),
         error: String::new(),
         protocol_version: HELPER_PROTOCOL_VERSION,
+        app_version: app_version(),
     }
 }
 
@@ -151,6 +165,7 @@ fn error_response(error: impl Into<String>) -> HelperResponse {
         output: String::new(),
         error: error.into(),
         protocol_version: HELPER_PROTOCOL_VERSION,
+        app_version: app_version(),
     }
 }
 
@@ -171,14 +186,31 @@ fn connect_helper() -> Result<UnixStream> {
 }
 
 fn send_request(request: &HelperRequest) -> Result<HelperResponse> {
+    send_request_timeout(request, SOCKET_TIMEOUT)
+}
+
+fn send_request_timeout(request: &HelperRequest, read_timeout: Duration) -> Result<HelperResponse> {
     let stream = connect_helper()?;
-    stream.set_read_timeout(Some(SOCKET_TIMEOUT))?;
+    stream.set_read_timeout(Some(read_timeout))?;
     stream.set_write_timeout(Some(SOCKET_TIMEOUT))?;
+    talk(&stream, request)
+}
 
-    serde_json::to_writer(&stream, request)?;
-    (&stream).flush()?;
+/// Write one request and read one reply on a connected helper stream.
+///
+/// The helper decodes the request with `serde_json::from_reader`, which only
+/// returns once the read side reaches EOF. Half-close our write side so it sees
+/// the end of the request and can reply — without this it blocks forever and
+/// every call waits out the read timeout instead of being served.
+fn talk(stream: &UnixStream, request: &HelperRequest) -> Result<HelperResponse> {
+    {
+        let mut writer = stream;
+        serde_json::to_writer(&mut writer, request)?;
+        writer.flush()?;
+    }
+    stream.shutdown(Shutdown::Write)?;
 
-    Ok(serde_json::from_reader(&stream)?)
+    Ok(serde_json::from_reader(stream)?)
 }
 
 fn require_success(response: HelperResponse) -> Result<()> {
@@ -208,9 +240,19 @@ pub fn run_helper_service(action: ServiceAction) -> Result<()> {
 }
 
 pub fn helper_is_ready() -> bool {
-    send_request(&HelperRequest::Version)
-        .map(|response| response.ok && response.protocol_version == HELPER_PROTOCOL_VERSION)
+    // A short read timeout keeps a wedged daemon from stalling a status poll.
+    send_request_timeout(&HelperRequest::Version, READY_TIMEOUT)
+        .map(|response| helper_response_is_ready(&response))
         .unwrap_or(false)
+}
+
+/// A daemon only counts as ready when it speaks our protocol *and* runs our
+/// build. The daemon outlives app upgrades, so ignoring the version would leave
+/// helper-side fixes inert until the user manually removed the daemon.
+fn helper_response_is_ready(response: &HelperResponse) -> bool {
+    response.ok
+        && response.protocol_version == HELPER_PROTOCOL_VERSION
+        && response.app_version == app_version()
 }
 
 /// Install (or reuse) the root LaunchDaemon that backs [`run_helper_script`].
@@ -310,6 +352,14 @@ pub fn run_admin_script(script: &str) -> Result<()> {
     )))
 }
 
+/// True when an AppleScript authorization prompt failed because the user
+/// dismissed it, rather than because the privileged command itself failed.
+/// `osascript` reports a dismissal as "User canceled. (-128)".
+pub fn is_authorization_cancel(err: &Error) -> bool {
+    let message = err.to_string();
+    message.contains("User canceled") || message.contains("(-128)")
+}
+
 fn quote(value: &str) -> String {
     shell_quote(value)
 }
@@ -363,5 +413,63 @@ mod tests {
         let response: HelperResponse =
             serde_json::from_str(r#"{"ok":true,"output":"","error":""}"#).unwrap();
         assert_eq!(response.protocol_version, 0);
+    }
+
+    #[test]
+    fn detects_authorization_cancellation() {
+        let cancel = Error::msg("exit status 1: execution error: User canceled. (-128)");
+        assert!(is_authorization_cancel(&cancel));
+
+        let failure = Error::msg("exit status 1: launchctl: Operation not permitted");
+        assert!(!is_authorization_cancel(&failure));
+    }
+
+    /// The daemon reads a request with `serde_json::from_reader`, which only
+    /// returns at EOF. Guard against a client that sends the request but never
+    /// half-closes, which would leave the helper blocked and the GUI hanging.
+    #[test]
+    fn request_is_half_closed_so_the_helper_can_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("helper.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            // Mirror `handle_helper_conn`.
+            let request: HelperRequest = serde_json::from_reader(&stream).unwrap();
+            serde_json::to_writer(&stream, &run_request(request)).unwrap();
+            let _ = stream.shutdown(Shutdown::Both);
+        });
+
+        let stream = UnixStream::connect(&path).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let reply = talk(&stream, &HelperRequest::Version).unwrap();
+
+        assert!(reply.ok);
+        assert_eq!(reply.protocol_version, HELPER_PROTOCOL_VERSION);
+        assert!(helper_response_is_ready(&reply));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn readiness_requires_a_matching_helper_build() {
+        assert!(helper_response_is_ready(&success_response()));
+
+        // A daemon from before `app_version` existed must be reinstalled.
+        let legacy: HelperResponse =
+            serde_json::from_str(r#"{"ok":true,"output":"","error":"","protocol_version":2}"#)
+                .unwrap();
+        assert!(!helper_response_is_ready(&legacy));
+
+        let stale = HelperResponse {
+            ok: true,
+            output: String::new(),
+            error: String::new(),
+            protocol_version: HELPER_PROTOCOL_VERSION,
+            app_version: String::from("0.0.0"),
+        };
+        assert!(!helper_response_is_ready(&stale));
     }
 }

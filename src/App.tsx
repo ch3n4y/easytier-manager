@@ -192,9 +192,11 @@ function Shell() {
     await run('clear', ClearLogs, (nextStatus) => {
       setStatus(nextStatus);
       setLogs('');
-      setClearOpen(false);
       setMessage('日志已清空');
     });
+    // Close the sheet whether or not the clear succeeded, so a failure surfaces
+    // in the stage notice instead of leaving the modal stuck open.
+    setClearOpen(false);
   }
 
   function navigate(next: View) {

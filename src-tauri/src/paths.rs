@@ -23,6 +23,11 @@ pub fn bin_dir() -> PathBuf {
     Path::new(INSTALL_ROOT).join("bin")
 }
 
+/// The LaunchDaemon plist `service-manager` writes for the managed service.
+pub fn service_plist_path() -> PathBuf {
+    Path::new("/Library/LaunchDaemons").join(format!("{SERVICE_LABEL}.plist"))
+}
+
 pub fn config_dir() -> PathBuf {
     Path::new(INSTALL_ROOT).join("config")
 }
