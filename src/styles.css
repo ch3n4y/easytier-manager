@@ -237,6 +237,12 @@ input:focus {
 /* The window is transparent: the gutter is what the card shadows fade into. */
 #root {
   padding: var(--window-gutter-top) var(--window-gutter-x) var(--window-gutter-bottom);
+  transition: opacity 0.15s var(--ease);
+}
+/* Veil the stage while a window-mode switch reshapes the native frame, so the
+   old layout never shows stretched inside the new frame. */
+html[data-window-mode-switching] #root {
+  opacity: 0;
 }
 
 /* Rail and stage are one window shell. Keeping their outer shadow on a shared
@@ -1139,4 +1145,77 @@ h3 {
 }
 .panel.fill > .logs {
   margin: var(--space-md);
+}
+
+/* ── Compact window ──────────────────────────────────────────────────────── */
+/* The default form factor: one card holding a status medallion, the state and
+   a single primary action. Everything else lives behind 展开. The card is a
+   `.shell > .pop` like the rail and stage, so it stays flush with the shared
+   frame instead of drawing a second border inside it. */
+.compact {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+}
+.compact-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.compact-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.compact-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.compact-body .ring {
+  width: 78px;
+  height: 78px;
+  margin-bottom: var(--space-xs);
+}
+.compact-body .ring svg {
+  width: 32px;
+  height: 32px;
+}
+.compact-body h2 {
+  font-size: var(--fs-h2);
+}
+.compact-body .sub {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.compact-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.compact-notice {
+  font-size: var(--fs-label);
+  color: var(--text-faint);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compact-notice.error {
+  color: var(--danger-deep);
+}
+
+/* Sits above the rail footer's divider, so the app-level "收起" reads apart
+   from the window controls below it. */
+.rail-collapse {
+  color: var(--text-faint);
 }

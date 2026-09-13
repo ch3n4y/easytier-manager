@@ -9,6 +9,7 @@ mod launchd;
 mod paths;
 mod release;
 mod util;
+mod window;
 
 use app::AppState;
 use tauri::Manager;
@@ -76,6 +77,7 @@ fn main() {
             app::update_core,
             app::read_logs,
             app::clear_logs,
+            window::set_window_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

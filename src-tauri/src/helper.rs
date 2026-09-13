@@ -376,14 +376,14 @@ mod tests {
     #[test]
     fn helper_plist_passes_uid_and_flag() {
         let plist = helper_plist_content(
-            "/Applications/EasyTier Desktop.app/Contents/MacOS/easytier-desktop",
+            "/Applications/EasyTier Manager.app/Contents/MacOS/easytier-manager",
             "501",
         );
         for expected in [
             crate::paths::HELPER_LABEL,
             "--helper",
             "501",
-            "EasyTier Desktop",
+            "EasyTier Manager",
         ] {
             assert!(plist.contains(expected), "plist missing {expected}");
         }

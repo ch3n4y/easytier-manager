@@ -15,15 +15,16 @@ import {
   UpdateCore,
 } from './api';
 import type { Status, UpdateInfo } from './api';
+import { CompactCard } from './CompactCard';
 import { Icon } from './icons';
 import { Sheet } from './Sheet';
 import { ThemeProvider } from './theme';
 import { installWindowDragHandler } from './windowDrag';
+import { WindowModeProvider, useWindowMode } from './windowMode';
 import { Overview } from './views/Overview';
-import { Logs } from './views/Logs';
 import { Settings } from './views/Settings';
 
-type View = 'overview' | 'logs' | 'settings';
+type View = 'overview' | 'settings';
 type Busy =
   | ''
   | 'install'
@@ -53,7 +54,6 @@ const BUSY_LABEL: Record<string, string> = {
 
 const VIEW_META: Record<View, string> = {
   overview: '概览',
-  logs: '日志',
   settings: '设置',
 };
 
@@ -74,6 +74,10 @@ function Shell() {
   const [error, setError] = useState('');
   const [view, setView] = useState<View>('overview');
   const [clearOpen, setClearOpen] = useState(false);
+
+  const { mode, setMode } = useWindowMode();
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   // Background polling must not race an in-flight action, and it must not
   // overwrite a config the user is halfway through editing.
@@ -103,6 +107,15 @@ function Shell() {
     setStatus(nextStatus);
     setConfigServer(nextConfig.configServer || '');
     if (!draftTouched.current) setDraftConfigServer(nextConfig.configServer || '');
+    // The log tail only exists in the expanded workbench; skip the read while
+    // the compact card is up.
+    if (modeRef.current === 'expanded') {
+      try {
+        setLogs(await ReadLogs(LOG_LIMIT));
+      } catch {
+        // Log tailing is best-effort: a read failure must not blank the status.
+      }
+    }
   }
 
   useEffect(() => {
@@ -118,7 +131,17 @@ function Shell() {
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => installWindowDragHandler(), []);
+  // Expanding reveals the log panel; fill it immediately instead of waiting
+  // for the next poll tick.
+  useEffect(() => {
+    if (mode === 'expanded') void readState().catch(() => undefined);
+  }, [mode]);
+
+  // The compact card is fixed-size, so double-click must not maximize it.
+  useEffect(
+    () => installWindowDragHandler({ canToggleMaximize: () => modeRef.current === 'expanded' }),
+    [],
+  );
 
   useEffect(() => {
     if (!message) return;
@@ -199,9 +222,20 @@ function Shell() {
     setClearOpen(false);
   }
 
-  function navigate(next: View) {
-    setView(next);
-    if (next === 'logs' && view !== 'logs') void refreshLogs();
+  if (mode === 'compact') {
+    return (
+      <CompactCard
+        status={status}
+        busy={busy}
+        busyLabel={busy ? BUSY_LABEL[busy] : ''}
+        message={message}
+        error={error}
+        onInstall={() => void installLatest()}
+        onStart={() => void startService()}
+        onStop={() => void stopService()}
+        onExpand={() => setMode('expanded')}
+      />
+    );
   }
 
   const title = VIEW_META[view];
@@ -215,7 +249,7 @@ function Shell() {
             ET
           </div>
           <div className="wordmark" data-app-drag>
-            EasyTier Desktop
+            EasyTier Manager
           </div>
         </div>
 
@@ -223,23 +257,15 @@ function Shell() {
           <button
             className={`rail-item${view === 'overview' ? ' active' : ''}`}
             aria-current={view === 'overview' ? 'page' : undefined}
-            onClick={() => navigate('overview')}
+            onClick={() => setView('overview')}
           >
             <Icon name="house" />
             概览
           </button>
           <button
-            className={`rail-item${view === 'logs' ? ' active' : ''}`}
-            aria-current={view === 'logs' ? 'page' : undefined}
-            onClick={() => navigate('logs')}
-          >
-            <Icon name="terminal" />
-            日志
-          </button>
-          <button
             className={`rail-item${view === 'settings' ? ' active' : ''}`}
             aria-current={view === 'settings' ? 'page' : undefined}
-            onClick={() => navigate('settings')}
+            onClick={() => setView('settings')}
           >
             <Icon name="gear" />
             设置
@@ -247,6 +273,11 @@ function Shell() {
         </nav>
 
         <div className="rail-spacer" data-app-drag />
+
+        <button className="rail-item rail-collapse" onClick={() => setMode('compact')}>
+          <Icon name="collapse" />
+          收起
+        </button>
 
         <div className="rail-foot">
           <button className="rail-item" onClick={() => void getCurrentWindow().minimize()}>
@@ -267,28 +298,23 @@ function Shell() {
           </div>
         </header>
 
-        <div className={`scroll${view === 'logs' ? ' flush' : ''}`}>
+        <div className={`scroll${view === 'overview' ? ' flush' : ''}`}>
           {view === 'overview' && (
             <Overview
               status={status}
               configServer={configServer}
               updateInfo={updateInfo}
               busy={busy}
+              logs={logs}
               onInstall={() => void installLatest()}
               onStart={() => void startService()}
               onStop={() => void stopService()}
               onRestart={() => void restartService()}
               onCheckUpdate={() => void checkUpdate()}
               onUpdateCore={() => void updateCore()}
-              onOpenSettings={() => navigate('settings')}
-            />
-          )}
-          {view === 'logs' && (
-            <Logs
-              logs={logs}
-              busy={busy}
-              onRefresh={() => void refreshLogs()}
-              onClear={() => setClearOpen(true)}
+              onOpenSettings={() => setView('settings')}
+              onRefreshLogs={() => void refreshLogs()}
+              onOpenClearLogs={() => setClearOpen(true)}
             />
           )}
           {view === 'settings' && (
@@ -342,7 +368,9 @@ function Shell() {
 function App() {
   return (
     <ThemeProvider>
-      <Shell />
+      <WindowModeProvider>
+        <Shell />
+      </WindowModeProvider>
     </ThemeProvider>
   );
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "EasyTier Desktop",
-  "version": "0.0.2",
-  "identifier": "com.ch3n4y.easytier-desktop",
+  "productName": "EasyTier Manager",
+  "version": "0.1.0",
+  "identifier": "com.ch3n4y.easytier-manager",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -14,12 +14,10 @@
     "windows": [
       {
         "label": "main",
-        "title": "EasyTier Desktop",
-        "width": 980,
-        "height": 660,
-        "minWidth": 860,
-        "minHeight": 580,
-        "resizable": true,
+        "title": "EasyTier Manager",
+        "width": 400,
+        "height": 340,
+        "resizable": false,
         "decorations": false,
         "transparent": true,
         "shadow": false,

@@ -25,6 +25,14 @@ export type UpdateInfo = {
   assetName: string;
 };
 
+export type WindowMode = 'compact' | 'expanded';
+
+export type WindowModeReport = {
+  mode: WindowMode;
+  width: number;
+  height: number;
+};
+
 export const emptyStatus: Status = {
   installed: false,
   running: false,
@@ -58,3 +66,6 @@ export const UpdateCore = () => invoke<Status>('update_core');
 export const ReadLogs = (limit: number) => invoke<string>('read_logs', {limit});
 
 export const ClearLogs = () => invoke<Status>('clear_logs');
+
+export const SetWindowMode = (mode: WindowMode) =>
+  invoke<WindowModeReport>('set_window_mode', {mode});

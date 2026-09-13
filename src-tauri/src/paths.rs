@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 
 use crate::util::{shell_quote, shell_quote_path};
 
-pub const SERVICE_LABEL: &str = "com.ch3n4y.easytier-desktop";
-pub const INSTALL_ROOT: &str = "/Library/Application Support/EasyTier Desktop";
-pub const LOG_ROOT: &str = "/Library/Logs/EasyTier Desktop";
-pub const HELPER_LABEL: &str = "com.ch3n4y.easytier-desktop.helper";
-pub const HELPER_PLIST: &str = "/Library/LaunchDaemons/com.ch3n4y.easytier-desktop.helper.plist";
-pub const HELPER_SOCKET: &str = "/var/run/easytier-desktop-helper.sock";
+pub const SERVICE_LABEL: &str = "com.ch3n4y.easytier-manager";
+pub const INSTALL_ROOT: &str = "/Library/Application Support/EasyTier Manager";
+pub const LOG_ROOT: &str = "/Library/Logs/EasyTier Manager";
+pub const HELPER_LABEL: &str = "com.ch3n4y.easytier-manager.helper";
+pub const HELPER_PLIST: &str = "/Library/LaunchDaemons/com.ch3n4y.easytier-manager.helper.plist";
+pub const HELPER_SOCKET: &str = "/var/run/easytier-manager-helper.sock";
 pub const RELEASE_API_URL: &str = "https://api.github.com/repos/EasyTier/EasyTier/releases/latest";
 
 pub const REQUIRED_BINARIES: [&str; 4] = [

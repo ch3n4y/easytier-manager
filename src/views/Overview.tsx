@@ -6,6 +6,7 @@ export interface OverviewProps {
   configServer: string;
   updateInfo: UpdateInfo | null;
   busy: string;
+  logs: string;
   onInstall: () => void;
   onStart: () => void;
   onStop: () => void;
@@ -13,6 +14,8 @@ export interface OverviewProps {
   onCheckUpdate: () => void;
   onUpdateCore: () => void;
   onOpenSettings: () => void;
+  onRefreshLogs: () => void;
+  onOpenClearLogs: () => void;
 }
 
 export function Overview({
@@ -20,6 +23,7 @@ export function Overview({
   configServer,
   updateInfo,
   busy,
+  logs,
   onInstall,
   onStart,
   onStop,
@@ -27,6 +31,8 @@ export function Overview({
   onCheckUpdate,
   onUpdateCore,
   onOpenSettings,
+  onRefreshLogs,
+  onOpenClearLogs,
 }: OverviewProps) {
   const working = busy !== '';
   const stateLabel = status.running ? '运行中' : status.installed ? '已停止' : '未安装';
@@ -34,6 +40,16 @@ export function Overview({
   const ringIcon = working ? 'loader' : status.running ? 'check' : status.installed ? 'pause' : 'download';
 
   const sub = status.installed ? (status.version ? `v${status.version}` : '已安装') : '尚未安装';
+
+  async function copyLogs() {
+    if (!logs) return;
+    try {
+      await navigator.clipboard.writeText(logs);
+    } catch {
+      // Clipboard can be unavailable (no focus, denied permission); the text is
+      // selectable in place, so this stays a silent no-op.
+    }
+  }
 
   return (
     <div className="view">
@@ -98,6 +114,33 @@ export function Overview({
             </button>
           )}
         </div>
+      </section>
+
+      <section className="panel fill">
+        <div className="panel-head">
+          <div className="grow">
+            <h3>运行日志</h3>
+          </div>
+          <div className="stage-actions">
+            <button className="btn ghost sm" disabled={working} onClick={onRefreshLogs}>
+              <Icon name="refresh" />
+              刷新
+            </button>
+            <button className="btn ghost sm" disabled={!logs} onClick={() => void copyLogs()}>
+              <Icon name="copy" />
+              复制
+            </button>
+            <button
+              className="btn ghost sm"
+              disabled={working || !logs}
+              onClick={onOpenClearLogs}
+            >
+              <Icon name="trash" />
+              清空
+            </button>
+          </div>
+        </div>
+        <pre className={logs ? 'logs' : 'logs logs-empty'}>{logs || '暂无日志。'}</pre>
       </section>
     </div>
   );

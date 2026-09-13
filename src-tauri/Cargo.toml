@@ -1,8 +1,8 @@
 [package]
-name = "easytier-desktop"
-version = "0.0.2"
-description = "EasyTier Desktop"
-authors = ["EasyTier Desktop Contributors"]
+name = "easytier-manager"
+version = "0.1.0"
+description = "EasyTier Manager"
+authors = ["EasyTier Manager Contributors"]
 edition = "2021"
 rust-version = "1.77"
 
