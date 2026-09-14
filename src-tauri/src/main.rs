@@ -4,29 +4,49 @@
 mod app;
 mod config;
 mod error;
+#[cfg(target_os = "macos")]
 mod helper;
+#[cfg(target_os = "macos")]
 mod launchd;
 mod paths;
+mod platform;
 mod release;
+mod service;
+mod settings;
+mod tray;
 mod util;
 mod window;
+#[cfg(windows)]
+mod winservice;
 
 use app::AppState;
 use tauri::Manager;
 
 fn main() {
-    // The installed LaunchDaemon re-invokes this same binary as the privileged
-    // helper, so bail out before any windowing code runs.
+    // macOS: the installed LaunchDaemon re-invokes this same binary as the
+    // privileged helper, so bail out before any windowing code runs.
+    #[cfg(target_os = "macos")]
     if helper::is_helper_invocation() {
         helper::run_helper();
     }
+
+    // Windows: the registered service is this same binary in service-host mode.
+    // Hand control to the dispatcher before any windowing code runs.
+    #[cfg(windows)]
+    if winservice::is_service_host_invocation() {
+        winservice::run_service_host();
+    }
+
+    // Hidden recovery entry point: run one service lifecycle action and exit.
+    // macOS drives this through its one-shot authorization path; on Windows the
+    // app is already elevated and calls the service manager in-process.
     if std::env::args().nth(1).as_deref() == Some("--service-action") {
         let result = std::env::args()
             .nth(2)
             .as_deref()
-            .and_then(launchd::ServiceAction::from_arg)
+            .and_then(service::ServiceAction::from_arg)
             .ok_or_else(|| error::Error::msg("invalid service action"))
-            .and_then(launchd::apply_service_action);
+            .and_then(service::apply_service_action);
         match result {
             Ok(()) => std::process::exit(0),
             Err(err) => {
@@ -40,28 +60,26 @@ fn main() {
         .manage(AppState::default())
         .setup(|app| {
             let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let outcome = tokio::task::spawn_blocking(helper::ensure_helper).await;
-                let state = handle.state::<AppState>();
-                let mut admin = state
-                    .admin
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            // Pull user settings into memory before anything can need them.
+            settings::load(&handle);
 
-                match outcome {
-                    Ok(Ok(())) => {
-                        admin.ready = true;
-                        admin.error.clear();
+            tray::setup(&handle)?;
+
+            // Closing the window hides it rather than quitting: the app has to
+            // stay alive for the tray icon to tell the user anything. Quitting is
+            // on the tray menu.
+            if let Some(window) = app.get_webview_window("main") {
+                let window_to_hide = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_to_hide.hide();
                     }
-                    Ok(Err(err)) => {
-                        admin.ready = false;
-                        admin.error = err.to_string();
-                    }
-                    Err(err) => {
-                        admin.ready = false;
-                        admin.error = err.to_string();
-                    }
-                }
+                });
+            }
+
+            tauri::async_runtime::spawn(async move {
+                platform::startup(handle.state::<AppState>().inner()).await;
             });
             Ok(())
         })
@@ -77,6 +95,8 @@ fn main() {
             app::update_core,
             app::read_logs,
             app::clear_logs,
+            app::get_settings,
+            app::save_settings,
             window::set_window_mode,
         ])
         .run(tauri::generate_context!())

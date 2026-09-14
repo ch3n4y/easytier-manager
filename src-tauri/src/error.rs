@@ -55,3 +55,6 @@ from_error!(
     walkdir::Error,
     tokio::task::JoinError,
 );
+
+#[cfg(windows)]
+from_error!(windows_service::Error);

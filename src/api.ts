@@ -9,6 +9,8 @@ export type Status = {
   pid: number;
   adminReady: boolean;
   adminError: string;
+  /** Host platform, used to tailor the authorization copy. */
+  platform: string;
 };
 
 export type ConfigPayload = {
@@ -33,6 +35,16 @@ export type WindowModeReport = {
   height: number;
 };
 
+export type AppSettings = {
+  /** Prefix prepended to GitHub URLs when downloading release assets. */
+  githubProxy: string;
+};
+
+export type DownloadProgress = {
+  received: number;
+  total: number | null;
+};
+
 export const emptyStatus: Status = {
   installed: false,
   running: false,
@@ -42,6 +54,7 @@ export const emptyStatus: Status = {
   pid: 0,
   adminReady: false,
   adminError: '',
+  platform: '',
 };
 
 export const GetStatus = () => invoke<Status>('get_status');
@@ -66,6 +79,11 @@ export const UpdateCore = () => invoke<Status>('update_core');
 export const ReadLogs = (limit: number) => invoke<string>('read_logs', {limit});
 
 export const ClearLogs = () => invoke<Status>('clear_logs');
+
+export const GetSettings = () => invoke<AppSettings>('get_settings');
+
+export const SaveSettings = (settings: AppSettings) =>
+  invoke<AppSettings>('save_settings', {settings});
 
 export const SetWindowMode = (mode: WindowMode) =>
   invoke<WindowModeReport>('set_window_mode', {mode});

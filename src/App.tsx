@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   CheckCoreUpdate,
   ClearLogs,
   emptyStatus,
+  GetSettings,
   GetStatus,
   InstallLatest,
   ReadConfig,
   ReadLogs,
   RestartService,
   SaveConfig,
+  SaveSettings,
   StartService,
   StopService,
   UpdateCore,
 } from './api';
-import type { Status, UpdateInfo } from './api';
+import type { DownloadProgress, Status, UpdateInfo } from './api';
 import { CompactCard } from './CompactCard';
 import { Icon } from './icons';
 import { Sheet } from './Sheet';
@@ -35,10 +38,15 @@ type Busy =
   | 'check'
   | 'update'
   | 'logs'
-  | 'clear';
+  | 'clear'
+  | 'proxy';
 
 const LOG_LIMIT = 200;
 const POLL_MS = 5000;
+const MB = 1024 * 1024;
+
+/** Kept in sync with `settings::DEFAULT_GITHUB_PROXY` on the backend. */
+const DEFAULT_GITHUB_PROXY = 'https://gh-proxy.com/';
 
 const BUSY_LABEL: Record<string, string> = {
   install: '安装 EasyTier',
@@ -50,12 +58,28 @@ const BUSY_LABEL: Record<string, string> = {
   update: '更新核心',
   logs: '加载日志',
   clear: '清空日志',
+  proxy: '保存加速地址',
 };
 
 const VIEW_META: Record<View, string> = {
   overview: '概览',
   settings: '设置',
 };
+
+/**
+ * Release assets are tens of megabytes and are often slow, so the notice has to
+ * show real progress — otherwise a long download is indistinguishable from a
+ * hang.
+ */
+function progressText(progress: DownloadProgress | null): string {
+  if (!progress) return '';
+  const received = (progress.received / MB).toFixed(1);
+  if (progress.total && progress.total > 0) {
+    const percent = Math.min(100, Math.round((progress.received / progress.total) * 100));
+    return `下载中 ${percent}%（${received}/${(progress.total / MB).toFixed(1)} MB）`;
+  }
+  return `下载中 ${received} MB`;
+}
 
 function errorText(err: unknown): string {
   if (typeof err === 'string') return err;
@@ -74,6 +98,9 @@ function Shell() {
   const [error, setError] = useState('');
   const [view, setView] = useState<View>('overview');
   const [clearOpen, setClearOpen] = useState(false);
+  const [githubProxy, setGithubProxy] = useState('');
+  const [draftGithubProxy, setDraftGithubProxy] = useState('');
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
 
   const { mode, setMode } = useWindowMode();
   const modeRef = useRef(mode);
@@ -89,6 +116,7 @@ function Shell() {
     setBusy(action);
     setError('');
     setMessage('');
+    setProgress(null);
     try {
       const value = await task();
       after?.(value);
@@ -136,6 +164,30 @@ function Shell() {
   useEffect(() => {
     if (mode === 'expanded') void readState().catch(() => undefined);
   }, [mode]);
+
+  // A long download would otherwise look like a hang, so the backend streams
+  // bytes as it fetches the release asset.
+  useEffect(() => {
+    const pending = listen<DownloadProgress>('download-progress', (event) =>
+      setProgress(event.payload),
+    );
+    return () => {
+      void pending.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  // App-level settings are not part of the polled status.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const settings = await GetSettings();
+        setGithubProxy(settings.githubProxy);
+        setDraftGithubProxy(settings.githubProxy);
+      } catch {
+        // Best-effort: the backend's default accelerator applies regardless.
+      }
+    })();
+  }, []);
 
   // The compact card is fixed-size, so double-click must not maximize it.
   useEffect(
@@ -193,6 +245,18 @@ function Shell() {
     );
   }
 
+  async function saveGithubProxy() {
+    await run(
+      'proxy',
+      () => SaveSettings({ githubProxy: draftGithubProxy.trim() }),
+      (next) => {
+        setGithubProxy(next.githubProxy);
+        setDraftGithubProxy(next.githubProxy);
+        setMessage('下载加速地址已保存');
+      },
+    );
+  }
+
   async function checkUpdate() {
     await run('check', CheckCoreUpdate, (info) => {
       setUpdateInfo(info);
@@ -222,12 +286,19 @@ function Shell() {
     setClearOpen(false);
   }
 
+  const downloading = busy === 'install' || busy === 'update';
+  const busyText = busy
+    ? downloading && progress
+      ? progressText(progress)
+      : BUSY_LABEL[busy]
+    : '';
+
   if (mode === 'compact') {
     return (
       <CompactCard
         status={status}
         busy={busy}
-        busyLabel={busy ? BUSY_LABEL[busy] : ''}
+        busyLabel={busyText}
         message={message}
         error={error}
         onInstall={() => void installLatest()}
@@ -286,7 +357,7 @@ function Shell() {
           </button>
           <button className="rail-item" onClick={() => void getCurrentWindow().close()}>
             <Icon name="close" />
-            关闭窗口
+            隐藏到托盘
           </button>
         </div>
         </aside>
@@ -322,6 +393,8 @@ function Shell() {
               status={status}
               configServer={configServer}
               draftConfigServer={draftConfigServer}
+              githubProxy={githubProxy}
+              draftGithubProxy={draftGithubProxy}
               busy={busy}
               onDraftChange={(value) => {
                 draftTouched.current = true;
@@ -332,13 +405,17 @@ function Shell() {
                 draftTouched.current = false;
                 setDraftConfigServer(configServer);
               }}
+              onGithubProxyChange={setDraftGithubProxy}
+              onSaveGithubProxy={() => void saveGithubProxy()}
+              onResetGithubProxy={() => setDraftGithubProxy(DEFAULT_GITHUB_PROXY)}
             />
           )}
         </div>
 
         {(busy || message || error) && (
           <div className={`stage-notice${error ? ' error' : ''}`} role="status" aria-live="polite">
-            {error || (busy ? `${BUSY_LABEL[busy]}…` : message)}
+            {error ||
+              (busy ? (downloading && progress ? busyText : `${busyText}…`) : message)}
           </div>
         )}
         </main>

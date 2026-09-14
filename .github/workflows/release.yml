@@ -6,12 +6,9 @@ on:
       - "v*"
 
 jobs:
-  release:
+  macos:
     name: macOS Universal
     runs-on: macos-latest
-    permissions:
-      contents: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -37,15 +34,59 @@ jobs:
       - name: Verify ad-hoc signature
         run: codesign --verify --deep --strict --verbose=2 "src-tauri/target/universal-apple-darwin/release/bundle/macos/EasyTier Manager.app"
 
-      - name: Prepare installer
-        run: mv "src-tauri/target/universal-apple-darwin/release/bundle/dmg/"*.dmg EasyTier-Manager_0.1.0_macos_universal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build NSIS and MSI installers
+        run: pnpm tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+
+  publish:
+    name: Publish release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          EasyTier-Manager_0.1.0_macos_universal.dmg
+          installers/*
           --repo "$GITHUB_REPOSITORY"
           --title "EasyTier Manager $GITHUB_REF_NAME"
-          --notes "macOS Universal 安装包，同时支持 Apple 芯片与 Intel 芯片。使用 ad-hoc 签名，首次打开时 macOS 仍可能要求用户确认。"
+          --notes "macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS/MSI）。Windows 版本以管理员权限运行。"

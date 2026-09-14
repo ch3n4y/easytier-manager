@@ -58,8 +58,8 @@ export function CompactCard({
           <button
             className="iconbtn close"
             onClick={() => void getCurrentWindow().close()}
-            aria-label="关闭"
-            title="关闭"
+            aria-label="隐藏到托盘"
+            title="隐藏到托盘"
           >
             <Icon name="close" />
           </button>

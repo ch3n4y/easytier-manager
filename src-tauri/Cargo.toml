@@ -1,6 +1,6 @@
 [package]
 name = "easytier-manager"
-version = "0.1.0"
+version = "0.2.0"
 description = "EasyTier Manager"
 authors = ["EasyTier Manager Contributors"]
 edition = "2021"
@@ -10,7 +10,7 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -18,9 +18,25 @@ zip = "2"
 regex = "1"
 walkdir = "2"
 tempfile = "3"
-libc = "0.2"
 tokio = { version = "1", features = ["rt", "time"] }
+
+# macOS: the privileged helper (launchd + unix socket) and the launchd service
+# manager. `home` is pinned because newer 0.5.x releases require Rust 1.88 while
+# this app's declared MSRV is 1.77.
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+libc = "0.2"
 service-manager = "0.11"
-# `which` (via service-manager) accepts any home 0.5 release; newer 0.5.12
-# requires Rust 1.88 while this app's declared MSRV is 1.77.
 home = "=0.5.9"
+
+# Windows: register and control the EasyTier core service through the Service
+# Control Manager, mirror EasyTier's service work-directory registry key, and tie
+# the supervised core's lifetime to the service host with a job object.
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
+winreg = "0.56"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+] }

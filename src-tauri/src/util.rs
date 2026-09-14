@@ -4,16 +4,19 @@ use std::path::Path;
 use crate::error::Result;
 
 /// Quote a value for safe interpolation into a `/bin/sh` command line.
+#[cfg(target_os = "macos")]
 pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// Quote a path for safe interpolation into a `/bin/sh` command line.
+#[cfg(target_os = "macos")]
 pub fn shell_quote_path(path: &Path) -> String {
     shell_quote(&path.to_string_lossy())
 }
 
 /// Quote a value for embedding in an AppleScript string literal.
+#[cfg(target_os = "macos")]
 pub fn apple_script_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\\\""))
 }
@@ -31,9 +34,18 @@ pub fn copy_file(src: &Path, dst: &Path, mode: u32) -> Result<()> {
     set_mode(dst, mode)
 }
 
+/// Apply a unix permission mode. Windows has no equivalent — file access is
+/// governed by ACLs inherited from the parent directory — so this is a no-op
+/// there and callers can stay platform-agnostic.
+#[cfg(target_os = "macos")]
 pub fn set_mode(path: &Path, mode: u32) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
@@ -118,9 +130,8 @@ mod tests {
 
     #[test]
     fn tail_file_missing_is_empty() {
-        assert_eq!(
-            tail_file(Path::new("/nonexistent/easytier.log"), 5).unwrap(),
-            ""
-        );
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist.log");
+        assert_eq!(tail_file(&missing, 5).unwrap(), "");
     }
 }

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "EasyTier Manager",
+        "width": 400,
+        "height": 340,
+        "resizable": false,
+        "decorations": false,
+        "transparent": false,
+        "shadow": false,
+        "center": true,
+        "backgroundColor": "#0d0f15"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["nsis", "msi"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
+  }
+}

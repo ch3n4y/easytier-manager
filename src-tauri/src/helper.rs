@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
 use crate::error::{Error, Result};
-use crate::launchd::{apply_service_action, ServiceAction};
 use crate::paths::{helper_plist_content, HELPER_LABEL, HELPER_PLIST, HELPER_SOCKET, LOG_ROOT};
+use crate::service::{apply_service_action, ServiceAction};
 use crate::util::{apple_script_quote, shell_quote};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(700);

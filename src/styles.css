@@ -245,6 +245,30 @@ html[data-window-mode-switching] #root {
   opacity: 0;
 }
 
+/* ── Windows: no transparent gutter ─────────────────────────────────────────
+   The gutter exists so the card's shadow can fade out inside it. macOS draws a
+   window shadow that makes that read as a floating card, but an undecorated
+   Windows window gets none — so the gutter would just show the desktop as a
+   transparent ring. There the window is opaque and the surfaces fill it edge to
+   edge instead. */
+html[data-platform='windows'] {
+  --window-gutter-x: 0px;
+  --window-gutter-top: 0px;
+  --window-gutter-bottom: 0px;
+}
+
+/* Keep the window opaque even while the mode-switch veil fades #root out. */
+html[data-platform='windows'] body {
+  background: var(--bg);
+}
+
+html[data-platform='windows'] .shell,
+html[data-platform='windows'] .pop.compact {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 /* Rail and stage are one window shell. Keeping their outer shadow on a shared
    wrapper prevents a transparent seam from appearing between both regions. */
 .shell {

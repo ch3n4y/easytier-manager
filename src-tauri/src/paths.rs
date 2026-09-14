@@ -1,15 +1,17 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+#[cfg(target_os = "macos")]
+use std::path::Path;
+
+#[cfg(target_os = "macos")]
 use crate::util::{shell_quote, shell_quote_path};
 
-pub const SERVICE_LABEL: &str = "com.ch3n4y.easytier-manager";
-pub const INSTALL_ROOT: &str = "/Library/Application Support/EasyTier Manager";
-pub const LOG_ROOT: &str = "/Library/Logs/EasyTier Manager";
-pub const HELPER_LABEL: &str = "com.ch3n4y.easytier-manager.helper";
-pub const HELPER_PLIST: &str = "/Library/LaunchDaemons/com.ch3n4y.easytier-manager.helper.plist";
-pub const HELPER_SOCKET: &str = "/var/run/easytier-manager-helper.sock";
 pub const RELEASE_API_URL: &str = "https://api.github.com/repos/EasyTier/EasyTier/releases/latest";
 
+pub const GITHUB_PROXY_PREFIXES: [&str; 3] = ["", "https://gh-proxy.com/", "https://ghproxy.net/"];
+
+/// The managed EasyTier binaries. Windows ships `.exe` files; macOS does not.
+#[cfg(target_os = "macos")]
 pub const REQUIRED_BINARIES: [&str; 4] = [
     "easytier-core",
     "easytier-cli",
@@ -17,31 +19,83 @@ pub const REQUIRED_BINARIES: [&str; 4] = [
     "easytier-web-embed",
 ];
 
-pub const GITHUB_PROXY_PREFIXES: [&str; 3] = ["", "https://gh-proxy.com/", "https://ghproxy.net/"];
+#[cfg(windows)]
+pub const REQUIRED_BINARIES: [&str; 4] = [
+    "easytier-core.exe",
+    "easytier-cli.exe",
+    "easytier-web.exe",
+    "easytier-web-embed.exe",
+];
 
-pub fn bin_dir() -> PathBuf {
-    Path::new(INSTALL_ROOT).join("bin")
+/// Non-executable payloads the core needs at runtime. Windows requires
+/// `wintun.dll` to create the virtual network adapter; other platforms bundle
+/// nothing extra.
+#[cfg(windows)]
+pub const REQUIRED_LIBRARIES: [&str; 1] = ["wintun.dll"];
+
+#[cfg(target_os = "macos")]
+pub const REQUIRED_LIBRARIES: [&str; 0] = [];
+
+/// Runtime helpers the official Windows package ships next to the core. WinDivert
+/// backs EasyTier's packet-capture features, so it is copied along with the
+/// binaries — but only when the release actually contains it, so a release that
+/// stops bundling these cannot break an install.
+#[cfg(windows)]
+pub const OPTIONAL_LIBRARIES: [&str; 2] = ["Packet.dll", "WinDivert64.sys"];
+
+#[cfg(target_os = "macos")]
+pub const OPTIONAL_LIBRARIES: [&str; 0] = [];
+
+// ── Shared layout ─────────────────────────────────────────────────────────
+
+/// Root the app manages. On macOS this is a fixed system path; on Windows it
+/// lives under `%ProgramData%`.
+#[cfg(target_os = "macos")]
+pub fn install_root() -> PathBuf {
+    PathBuf::from(INSTALL_ROOT)
 }
 
-/// The LaunchDaemon plist `service-manager` writes for the managed service.
-pub fn service_plist_path() -> PathBuf {
-    Path::new("/Library/LaunchDaemons").join(format!("{SERVICE_LABEL}.plist"))
+#[cfg(windows)]
+pub fn install_root() -> PathBuf {
+    let base = std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+    base.join("EasyTier Manager")
+}
+
+/// Directory holding the service log. On macOS it is a dedicated `/Library/Logs`
+/// tree; on Windows it is nested under the install root and fed to the core
+/// through `--file-log-dir`.
+#[cfg(target_os = "macos")]
+pub fn log_root() -> PathBuf {
+    PathBuf::from(LOG_ROOT)
+}
+
+#[cfg(windows)]
+pub fn log_root() -> PathBuf {
+    install_root().join("logs")
+}
+
+pub fn bin_dir() -> PathBuf {
+    install_root().join("bin")
 }
 
 pub fn config_dir() -> PathBuf {
-    Path::new(INSTALL_ROOT).join("config")
+    install_root().join("config")
 }
 
 pub fn state_dir() -> PathBuf {
-    Path::new(INSTALL_ROOT).join("state")
+    install_root().join("state")
 }
+
+#[cfg(target_os = "macos")]
+pub const CORE_BINARY: &str = "easytier-core";
+
+#[cfg(windows)]
+pub const CORE_BINARY: &str = "easytier-core.exe";
 
 pub fn core_path() -> PathBuf {
-    bin_dir().join("easytier-core")
-}
-
-pub fn service_script_path() -> PathBuf {
-    bin_dir().join("easytier-service")
+    bin_dir().join(CORE_BINARY)
 }
 
 pub fn default_conf_path() -> PathBuf {
@@ -52,10 +106,83 @@ pub fn service_env_path() -> PathBuf {
     config_dir().join("service.env")
 }
 
+/// The managed service log. On Windows the core writes rolling files into
+/// [`log_root`], so this is only the default/primary candidate name.
 pub fn log_path() -> PathBuf {
-    Path::new(LOG_ROOT).join("easytier.log")
+    log_root().join("easytier.log")
 }
 
+pub fn default_config() -> String {
+    String::from(
+        r#"instance_name = "default"
+dhcp = true
+listeners = [
+    "tcp://0.0.0.0:11010",
+    "udp://0.0.0.0:11010",
+    "wg://0.0.0.0:11011",
+    "ws://0.0.0.0:11011/",
+    "wss://0.0.0.0:11012/",
+]
+exit_nodes = []
+rpc_portal = "0.0.0.0:0"
+
+[[peer]]
+uri = "tcp://public.easytier.top:11010"
+
+[network_identity]
+network_name = "default"
+network_secret = "default"
+
+[flags]
+default_protocol = "udp"
+dev_name = ""
+enable_encryption = true
+enable_ipv6 = true
+mtu = 1380
+latency_first = false
+enable_exit_node = false
+no_tun = false
+use_smoltcp = false
+foreign_network_whitelist = "*"
+disable_p2p = false
+p2p_only = false
+relay_all_peer_rpc = false
+disable_tcp_hole_punching = false
+disable_udp_hole_punching = false
+"#,
+    )
+}
+
+// ── macOS ─────────────────────────────────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+pub const SERVICE_LABEL: &str = "com.ch3n4y.easytier-manager";
+#[cfg(target_os = "macos")]
+pub const INSTALL_ROOT: &str = "/Library/Application Support/EasyTier Manager";
+#[cfg(target_os = "macos")]
+pub const LOG_ROOT: &str = "/Library/Logs/EasyTier Manager";
+#[cfg(target_os = "macos")]
+pub const HELPER_LABEL: &str = "com.ch3n4y.easytier-manager.helper";
+#[cfg(target_os = "macos")]
+pub const HELPER_PLIST: &str =
+    "/Library/LaunchDaemons/com.ch3n4y.easytier-manager.helper.plist";
+#[cfg(target_os = "macos")]
+pub const HELPER_SOCKET: &str = "/var/run/easytier-manager-helper.sock";
+
+/// The LaunchDaemon plist `service-manager` writes for the managed service.
+#[cfg(target_os = "macos")]
+pub fn service_plist_path() -> PathBuf {
+    Path::new("/Library/LaunchDaemons").join(format!("{SERVICE_LABEL}.plist"))
+}
+
+/// The shell wrapper the managed service runs.
+#[cfg(target_os = "macos")]
+pub fn service_script_path() -> PathBuf {
+    bin_dir().join("easytier-service")
+}
+
+/// PID file written by whichever wrapper owns the running core: the macOS shell
+/// script, or the Windows service host.
 pub fn pid_path() -> PathBuf {
     state_dir().join("easytier.pid")
 }
@@ -63,6 +190,7 @@ pub fn pid_path() -> PathBuf {
 // Templates use `__TOKEN__` placeholders rather than `format!` so the embedded
 // shell and XML braces stay readable.
 
+#[cfg(target_os = "macos")]
 const SERVICE_WRAPPER: &str = r#"#!/bin/sh
 set -eu
 
@@ -90,6 +218,7 @@ fi
 exec __CORE__ -c "$config_file"
 "#;
 
+#[cfg(target_os = "macos")]
 pub fn service_wrapper() -> String {
     SERVICE_WRAPPER
         .replace("__SERVICE_ENV__", &shell_quote_path(&service_env_path()))
@@ -100,6 +229,7 @@ pub fn service_wrapper() -> String {
         .replace("__CORE__", &shell_quote_path(&core_path()))
 }
 
+#[cfg(target_os = "macos")]
 const HELPER_PLIST_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -124,6 +254,7 @@ const HELPER_PLIST_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 "#;
 
+#[cfg(target_os = "macos")]
 pub fn helper_plist_content(exe: &str, uid: &str) -> String {
     HELPER_PLIST_TEMPLATE
         .replace("__LABEL__", HELPER_LABEL)
@@ -132,6 +263,7 @@ pub fn helper_plist_content(exe: &str, uid: &str) -> String {
         .replace("__LOG_ROOT__", LOG_ROOT)
 }
 
+#[cfg(target_os = "macos")]
 const INSTALL_SCRIPT: &str = r#"set -eu
 mkdir -p __BIN_DIR__ __CONFIG_DIR__ __STATE_DIR__ __LOG_ROOT__
 # The GUI runs as the invoking user and tails these files directly, so both the
@@ -149,6 +281,7 @@ if [ ! -f __SERVICE_ENV__ ]; then install -m 644 __STAGE_SERVICE_ENV__ __SERVICE
 touch __LOG__
 chmod 644 __LOG__"#;
 
+#[cfg(target_os = "macos")]
 pub fn install_script(stage: &Path) -> String {
     let bin = bin_dir();
     INSTALL_SCRIPT
@@ -200,6 +333,7 @@ pub fn install_script(stage: &Path) -> String {
         )
 }
 
+#[cfg(target_os = "macos")]
 const UPDATE_SCRIPT: &str = r#"set -eu
 backup=""
 if [ -d __BIN_DIR__ ]; then backup=__INSTALL_ROOT__/bin.backup.$(date +%s); cp -pR __BIN_DIR__ "$backup"; fi
@@ -212,6 +346,7 @@ install -m 755 __STAGE_WEB__ __WEB__
 install -m 755 __STAGE_WEB_EMBED__ __WEB_EMBED__
 trap - EXIT"#;
 
+#[cfg(target_os = "macos")]
 pub fn update_script(stage: &Path) -> String {
     let bin = bin_dir();
     UPDATE_SCRIPT
@@ -242,48 +377,16 @@ pub fn update_script(stage: &Path) -> String {
         )
 }
 
-pub fn default_config() -> String {
-    String::from(
-        r#"instance_name = "default"
-dhcp = true
-listeners = [
-    "tcp://0.0.0.0:11010",
-    "udp://0.0.0.0:11010",
-    "wg://0.0.0.0:11011",
-    "ws://0.0.0.0:11011/",
-    "wss://0.0.0.0:11012/",
-]
-exit_nodes = []
-rpc_portal = "0.0.0.0:0"
+// ── Windows ───────────────────────────────────────────────────────────────
 
-[[peer]]
-uri = "tcp://public.easytier.top:11010"
+/// Name the service is registered under in the Service Control Manager.
+#[cfg(windows)]
+pub const WINDOWS_SERVICE_NAME: &str = "EasyTierManager";
+/// User-facing service name shown by `services.msc`.
+#[cfg(windows)]
+pub const WINDOWS_SERVICE_DISPLAY_NAME: &str = "EasyTier Manager";
 
-[network_identity]
-network_name = "default"
-network_secret = "default"
-
-[flags]
-default_protocol = "udp"
-dev_name = ""
-enable_encryption = true
-enable_ipv6 = true
-mtu = 1380
-latency_first = false
-enable_exit_node = false
-no_tun = false
-use_smoltcp = false
-foreign_network_whitelist = "*"
-disable_p2p = false
-p2p_only = false
-relay_all_peer_rpc = false
-disable_tcp_hole_punching = false
-disable_udp_hole_punching = false
-"#,
-    )
-}
-
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
