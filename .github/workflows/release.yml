@@ -81,23 +81,32 @@ jobs:
           path: installers
           merge-multiple: true
 
-      # Uploading keeps the directory structure the artifact was created from, so
-      # the files arrive nested under `nsis/`, `msi/` and `dmg/`. Flatten them;
-      # the names contain spaces, so they are handled as an array rather than a
-      # glob.
-      - name: Collect installers
-        run: |
-          mkdir -p release
-          find installers -type f -exec cp {} release/ \;
-          ls -l release
-
+      # download-artifact keeps the directory structure the artifact was
+      # uploaded from, so the files arrive nested under `nsis/`, `msi/` and
+      # `dmg/`. Collect them with find, null-delimited so the spaces in the file
+      # names survive; gh names each asset after its basename.
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          shopt -s nullglob
-          files=(release/*)
-          gh release create "$GITHUB_REF_NAME" "${files[@]}" \
+          mapfile -d '' files < <(find installers -type f -print0)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no installer files found under installers/"
+            exit 1
+          fi
+          printf 'uploading: %s\n' "${files[@]}"
+
+          # A previous attempt may already have created the release (possibly
+          # without assets), and a re-run must not die with "release already
+          # exists" — create it only when it is missing, then upload.
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "EasyTier Manager $GITHUB_REF_NAME" \
+              --notes "macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS/MSI）。Windows 版本以管理员权限运行。"
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "EasyTier Manager $GITHUB_REF_NAME" \
-            --notes "macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS/MSI）。Windows 版本以管理员权限运行。"
+            --clobber
