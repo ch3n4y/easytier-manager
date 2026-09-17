@@ -1,6 +1,6 @@
 [package]
 name = "easytier-manager"
-version = "0.2.1"
+version = "0.3.0"
 description = "EasyTier Manager"
 authors = ["EasyTier Manager Contributors"]
 edition = "2021"
@@ -11,6 +11,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+# Self-update for the manager bundle. `updater_builder` returns the builder
+# directly rather than a `Result` from 2.11 on, so the minor is pinned.
+tauri-plugin-updater = "2.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

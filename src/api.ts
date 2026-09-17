@@ -4,6 +4,7 @@ export type Status = {
   installed: boolean;
   running: boolean;
   loaded: boolean;
+  /** Version of the installed EasyTier core, empty when it is not installed. */
   version: string;
   mode: string;
   pid: number;
@@ -11,6 +12,8 @@ export type Status = {
   adminError: string;
   /** Host platform, used to tailor the authorization copy. */
   platform: string;
+  /** Version of this app, which is what the updater compares releases against. */
+  appVersion: string;
 };
 
 export type ConfigPayload = {
@@ -25,6 +28,17 @@ export type UpdateInfo = {
   latestVersion: string;
   hasUpdate: boolean;
   assetName: string;
+};
+
+/** The manager's own release channel, which is separate from the core's. */
+export type AppUpdateInfo = {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  /** Release notes, empty when there is nothing to install. */
+  notes: string;
+  /** Publication date of the release, empty when the manifest omits it. */
+  date: string;
 };
 
 export type WindowMode = 'compact' | 'expanded';
@@ -55,6 +69,7 @@ export const emptyStatus: Status = {
   adminReady: false,
   adminError: '',
   platform: '',
+  appVersion: '',
 };
 
 export const GetStatus = () => invoke<Status>('get_status');
@@ -75,6 +90,11 @@ export const SaveConfig = (payload: ConfigPayload) =>
 export const CheckCoreUpdate = () => invoke<UpdateInfo>('check_core_update');
 
 export const UpdateCore = () => invoke<Status>('update_core');
+
+export const CheckAppUpdate = () => invoke<AppUpdateInfo>('check_app_update');
+
+/** Resolves on macOS; on Windows the installer takes over and the app exits. */
+export const InstallAppUpdate = () => invoke<void>('install_app_update');
 
 export const ReadLogs = (limit: number) => invoke<string>('read_logs', {limit});
 

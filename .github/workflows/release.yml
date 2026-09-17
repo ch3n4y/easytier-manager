@@ -28,7 +28,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # `createUpdaterArtifacts` makes the build sign the update archive, so the
+      # private key has to be here or the bundle step fails outright. The password
+      # is empty, but the variable still has to be set: without it the signer
+      # stops on an interactive prompt, which in CI just hangs.
       - name: Build Universal package
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: pnpm tauri build --target universal-apple-darwin
 
       - name: Verify ad-hoc signature
@@ -37,7 +44,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
 
   windows:
     name: Windows x64
@@ -60,14 +70,24 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build NSIS and MSI installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: pnpm tauri build
 
+      # In the default `createUpdaterArtifacts` mode the NSIS installer is its own
+      # update bundle: the updater downloads the `.exe` and checks it against the
+      # `.exe.sig` beside it. The `.nsis.zip` form only appears under
+      # `"v1Compatible"`. The MSI cannot self-update and is published for people
+      # installing by hand, signature included so they can verify it.
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
-            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
             src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi.sig
 
   publish:
     name: Publish release
@@ -75,23 +95,76 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # Shared by the release and by `latest.json`, so the notes the updater
+      # shows are the same ones on the release page.
+      RELEASE_NOTES: |
+        macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS/MSI）。Windows 版本以管理员权限运行。
+
+        新增：管理器自身支持应用内更新，可在「设置 → 关于」中检查并安装新版本。
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: installers
           merge-multiple: true
 
-      # download-artifact keeps the directory structure the artifact was
-      # uploaded from, so the files arrive nested under `nsis/`, `msi/` and
-      # `dmg/`. Collect them with find, null-delimited so the spaces in the file
-      # names survive; gh names each asset after its basename.
+      # download-artifact keeps the directory structure each artifact was
+      # uploaded from, so the files arrive nested under `dmg/`, `macos/`, `nsis/`
+      # and `msi/`. Flatten them into one directory under URL-safe names, because
+      # `latest.json` refers to assets by name and the spaces in Tauri's file
+      # names do not survive the trip through a download URL intact.
+      - name: Collect release assets
+        run: |
+          mkdir -p dist
+          find installers -type f -print0 | while IFS= read -r -d '' file; do
+            cp "$file" "dist/$(basename "$file" | tr ' ' '-')"
+          done
+          ls -l dist
+
+      # The manifest the in-app updater reads: for each platform, the archive to
+      # download and the signature to check it against. The universal macOS build
+      # serves both architectures from one archive, so both keys point at it.
+      - name: Build the updater manifest
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+
+          mac_archive=$(cd dist && ls -- *.app.tar.gz 2>/dev/null | head -n1 || true)
+          windows_archive=$(cd dist && ls -- *-setup.exe 2>/dev/null | head -n1 || true)
+          if [ -z "$mac_archive" ] || [ -z "$windows_archive" ]; then
+            echo "::error::updater archives are missing — are the build jobs able to see TAURI_SIGNING_PRIVATE_KEY?"
+            exit 1
+          fi
+
+          jq -n \
+            --arg version "$version" \
+            --arg notes "$RELEASE_NOTES" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg mac_url "$base/$mac_archive" \
+            --arg mac_signature "$(cat "dist/$mac_archive.sig")" \
+            --arg windows_url "$base/$windows_archive" \
+            --arg windows_signature "$(cat "dist/$windows_archive.sig")" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $date,
+              platforms: {
+                "darwin-aarch64": { signature: $mac_signature, url: $mac_url },
+                "darwin-x86_64": { signature: $mac_signature, url: $mac_url },
+                "windows-x86_64": { signature: $windows_signature, url: $windows_url }
+              }
+            }' > dist/latest.json
+          cat dist/latest.json
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -d '' files < <(find installers -type f -print0)
+          shopt -s nullglob
+          files=(dist/*)
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "::error::no installer files found under installers/"
+            echo "::error::no installer files found under dist/"
             exit 1
           fi
           printf 'uploading: %s\n' "${files[@]}"
@@ -104,7 +177,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "EasyTier Manager $GITHUB_REF_NAME" \
-              --notes "macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS/MSI）。Windows 版本以管理员权限运行。"
+              --notes "$RELEASE_NOTES"
           fi
 
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" \

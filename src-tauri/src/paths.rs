@@ -8,6 +8,14 @@ use crate::util::{shell_quote, shell_quote_path};
 
 pub const RELEASE_API_URL: &str = "https://api.github.com/repos/EasyTier/EasyTier/releases/latest";
 
+/// The manager's own release channel: the manifest `tauri-plugin-updater` reads
+/// to find its updates. The same URL is listed in `tauri.conf.json` under
+/// `plugins > updater > endpoints`; at runtime this one is the starting point
+/// the accelerators are wrapped around. Its `pubkey` counterpart is the public
+/// half of the key the release workflow signs the installers with.
+pub const UPDATER_ENDPOINT: &str =
+    "https://github.com/ch3n4y/easytier-manager/releases/latest/download/latest.json";
+
 pub const GITHUB_PROXY_PREFIXES: [&str; 3] = ["", "https://gh-proxy.com/", "https://ghproxy.net/"];
 
 /// The managed EasyTier binaries. Windows ships `.exe` files; macOS does not.

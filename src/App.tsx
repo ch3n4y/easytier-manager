@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  CheckAppUpdate,
   CheckCoreUpdate,
   ClearLogs,
   emptyStatus,
   GetSettings,
   GetStatus,
+  InstallAppUpdate,
   InstallLatest,
   ReadConfig,
   ReadLogs,
@@ -17,7 +19,7 @@ import {
   StopService,
   UpdateCore,
 } from './api';
-import type { DownloadProgress, Status, UpdateInfo } from './api';
+import type { AppUpdateInfo, DownloadProgress, Status, UpdateInfo } from './api';
 import { CompactCard } from './CompactCard';
 import { Icon } from './icons';
 import { Sheet } from './Sheet';
@@ -37,6 +39,8 @@ type Busy =
   | 'save'
   | 'check'
   | 'update'
+  | 'appCheck'
+  | 'appUpdate'
   | 'logs'
   | 'clear'
   | 'proxy';
@@ -56,6 +60,8 @@ const BUSY_LABEL: Record<string, string> = {
   save: '保存配置',
   check: '检查更新',
   update: '更新核心',
+  appCheck: '检查管理器更新',
+  appUpdate: '更新管理器',
   logs: '加载日志',
   clear: '清空日志',
   proxy: '保存加速地址',
@@ -92,6 +98,7 @@ function Shell() {
   const [configServer, setConfigServer] = useState('');
   const [draftConfigServer, setDraftConfigServer] = useState('');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null);
   const [logs, setLogs] = useState('');
   const [busy, setBusy] = useState<Busy>('');
   const [message, setMessage] = useState('');
@@ -271,6 +278,19 @@ function Shell() {
     });
   }
 
+  async function checkAppUpdate() {
+    await run('appCheck', CheckAppUpdate, (info) => {
+      setAppUpdate(info);
+      setMessage(info.hasUpdate ? `管理器有新版本 v${info.latestVersion}` : '管理器已是最新版本');
+    });
+  }
+
+  async function installAppUpdate() {
+    await run('appUpdate', InstallAppUpdate, () => {
+      setMessage('管理器已更新');
+    });
+  }
+
   async function refreshLogs() {
     await run('logs', () => ReadLogs(LOG_LIMIT), setLogs);
   }
@@ -286,7 +306,7 @@ function Shell() {
     setClearOpen(false);
   }
 
-  const downloading = busy === 'install' || busy === 'update';
+  const downloading = busy === 'install' || busy === 'update' || busy === 'appUpdate';
   const busyText = busy
     ? downloading && progress
       ? progressText(progress)
@@ -395,6 +415,7 @@ function Shell() {
               draftConfigServer={draftConfigServer}
               githubProxy={githubProxy}
               draftGithubProxy={draftGithubProxy}
+              appUpdate={appUpdate}
               busy={busy}
               onDraftChange={(value) => {
                 draftTouched.current = true;
@@ -408,6 +429,8 @@ function Shell() {
               onGithubProxyChange={setDraftGithubProxy}
               onSaveGithubProxy={() => void saveGithubProxy()}
               onResetGithubProxy={() => setDraftGithubProxy(DEFAULT_GITHUB_PROXY)}
+              onCheckAppUpdate={() => void checkAppUpdate()}
+              onInstallAppUpdate={() => void installAppUpdate()}
             />
           )}
         </div>

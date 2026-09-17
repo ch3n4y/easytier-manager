@@ -54,6 +54,7 @@ from_error!(
     zip::result::ZipError,
     walkdir::Error,
     tokio::task::JoinError,
+    tauri_plugin_updater::Error,
 );
 
 #[cfg(windows)]

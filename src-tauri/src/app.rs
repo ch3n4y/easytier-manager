@@ -3,8 +3,10 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_updater::Update;
 use tempfile::TempDir;
 
+use crate::app_update::{self, AppUpdateInfo};
 use crate::config::{read_config_files, ConfigPayload};
 use crate::error::{Error, Result};
 use crate::paths::core_path;
@@ -31,6 +33,10 @@ pub struct AdminState {
 #[derive(Default)]
 pub struct AppState {
     pub admin: Mutex<AdminState>,
+    /// The manager release `check_app_update` resolved, held until the user
+    /// decides to install it. Re-resolving at install time could install a
+    /// version other than the one the panel advertised.
+    pub pending_update: Mutex<Option<Update>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -51,6 +57,10 @@ pub struct Status {
     pub admin_error: String,
     /// Lets the UI branch authorization copy per platform.
     pub platform: String,
+    /// The manager's own version, as opposed to `version`, which is the
+    /// installed EasyTier core's. Kept in step with the updater, which compares
+    /// releases against the same value.
+    pub app_version: String,
 }
 
 /// Run blocking filesystem / process work off the async runtime.
@@ -100,7 +110,7 @@ pub(crate) fn set_one_shot_only(state: &AppState, value: bool) {
     admin.one_shot_only = value;
 }
 
-fn build_status(admin_ready: bool, admin_error: String) -> Status {
+fn build_status(admin_ready: bool, admin_error: String, app_version: String) -> Status {
     let installed = file_exists(&core_path());
     let (loaded, running, pid) = service::service_status();
 
@@ -118,21 +128,25 @@ fn build_status(admin_ready: bool, admin_error: String) -> Status {
         admin_ready,
         admin_error,
         platform: String::from(PLATFORM),
+        app_version,
     }
 }
 
-async fn current_status(state: &AppState) -> Result<Status> {
+async fn current_status(app: &AppHandle, state: &AppState) -> Result<Status> {
     platform::refresh_admin(state).await;
     let (ready, error) = admin_snapshot(state);
-    run_blocking(move || Ok(build_status(ready, error))).await
+    let app_version = app.package_info().version.to_string();
+    run_blocking(move || Ok(build_status(ready, error, app_version))).await
 }
 
-/// Download progress handed to the webview while an asset is fetched.
+/// Download progress handed to the webview while an asset is fetched. Shared by
+/// the EasyTier core download and the manager's own, so the frontend keeps a
+/// single listener.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DownloadProgress {
-    received: u64,
-    total: Option<u64>,
+pub(crate) struct DownloadProgress {
+    pub(crate) received: u64,
+    pub(crate) total: Option<u64>,
 }
 
 /// A reporter that forwards download progress to the frontend. Release assets
@@ -146,7 +160,7 @@ fn progress_reporter(app: &AppHandle) -> impl Fn(u64, Option<u64>) + 'static {
 
 #[tauri::command]
 pub async fn get_status(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
-    let status = current_status(state.inner()).await?;
+    let status = current_status(&app, state.inner()).await?;
     // The tray is the only sign of life once the window is hidden.
     crate::tray::update_tooltip(&app, &status);
     Ok(status)
@@ -173,28 +187,28 @@ pub async fn install_latest(app: AppHandle, state: State<'_, AppState>) -> Resul
     platform::install_privileged(state.inner(), stage.path()).await?;
     platform::apply_service(state.inner(), ServiceAction::Install).await?;
     tokio::time::sleep(Duration::from_millis(400)).await;
-    current_status(state.inner()).await
+    current_status(&app, state.inner()).await
 }
 
 #[tauri::command]
-pub async fn start_service(state: State<'_, AppState>) -> Result<Status> {
+pub async fn start_service(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     platform::apply_service(state.inner(), ServiceAction::Start).await?;
     tokio::time::sleep(Duration::from_millis(400)).await;
-    current_status(state.inner()).await
+    current_status(&app, state.inner()).await
 }
 
 #[tauri::command]
-pub async fn stop_service(state: State<'_, AppState>) -> Result<Status> {
+pub async fn stop_service(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     platform::apply_service(state.inner(), ServiceAction::Stop).await?;
     tokio::time::sleep(Duration::from_millis(400)).await;
-    current_status(state.inner()).await
+    current_status(&app, state.inner()).await
 }
 
 #[tauri::command]
-pub async fn restart_service(state: State<'_, AppState>) -> Result<Status> {
+pub async fn restart_service(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     platform::apply_service(state.inner(), ServiceAction::Restart).await?;
     tokio::time::sleep(Duration::from_millis(600)).await;
-    current_status(state.inner()).await
+    current_status(&app, state.inner()).await
 }
 
 #[tauri::command]
@@ -238,7 +252,7 @@ pub async fn check_core_update() -> Result<UpdateInfo> {
 pub async fn update_core(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     platform::prepare(state.inner()).await?;
 
-    let before = current_status(state.inner()).await?;
+    let before = current_status(&app, state.inner()).await?;
 
     let (release, asset) = latest_asset().await?;
     if before.version == normalize_version(&release.tag_name) {
@@ -278,7 +292,47 @@ pub async fn update_core(app: AppHandle, state: State<'_, AppState>) -> Result<S
         (Ok(()), Ok(())) => {}
     }
     tokio::time::sleep(Duration::from_millis(600)).await;
-    current_status(state.inner()).await
+    current_status(&app, state.inner()).await
+}
+
+/// Resolve the manager's own release channel and remember what it offered, so
+/// the install command can use exactly this release.
+#[tauri::command]
+pub async fn check_app_update(app: AppHandle, state: State<'_, AppState>) -> Result<AppUpdateInfo> {
+    let update = app_update::check(&app).await?;
+    let running = app.package_info().version.to_string();
+    let info = app_update::describe(update.as_ref(), &running);
+
+    let mut pending = state
+        .pending_update
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *pending = update;
+
+    Ok(info)
+}
+
+/// Download, verify and install the manager release `check_app_update` found.
+///
+/// Windows never reports back: the NSIS installer takes over and the process
+/// exits, relaunching the app once the new version is in place. macOS replaces
+/// the bundle and relaunches from the backend.
+#[tauri::command]
+pub async fn install_app_update(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    let update = {
+        let mut pending = state
+            .pending_update
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        pending.take()
+    };
+
+    let Some(update) = update else {
+        return Err(Error::msg("no manager update has been checked"));
+    };
+
+    let bytes = app_update::download(&app, &update).await?;
+    app_update::install(&app, &update, bytes)
 }
 
 #[tauri::command]
@@ -292,9 +346,9 @@ pub async fn read_logs(limit: i64) -> Result<String> {
 }
 
 #[tauri::command]
-pub async fn clear_logs(state: State<'_, AppState>) -> Result<Status> {
+pub async fn clear_logs(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     platform::clear_log(state.inner()).await?;
-    current_status(state.inner()).await
+    current_status(&app, state.inner()).await
 }
 
 #[tauri::command]

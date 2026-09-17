@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "EasyTier Manager",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "identifier": "com.ch3n4y.easytier-manager",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -32,6 +32,7 @@
     "active": true,
     "targets": "all",
     "category": "Utility",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,5 +40,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc0MjVEMkM3MzZFMTA3ODMKUldTREIrRTJ4OUlsZFB3SG5mbWdHdTd1WjIvMWl1aFRYYkJiZi9nSkhqQW9wQjROZFBLZTNNeHkK",
+      "endpoints": [
+        "https://github.com/ch3n4y/easytier-manager/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

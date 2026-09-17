@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod app_update;
 mod config;
 mod error;
 #[cfg(target_os = "macos")]
@@ -57,6 +58,7 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .setup(|app| {
             let handle = app.handle().clone();
@@ -93,6 +95,8 @@ fn main() {
             app::save_config,
             app::check_core_update,
             app::update_core,
+            app::check_app_update,
+            app::install_app_update,
             app::read_logs,
             app::clear_logs,
             app::get_settings,

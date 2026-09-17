@@ -41,6 +41,7 @@ Windows. Platform-specific bundling is configured in `src-tauri/tauri.macos.conf
     (Windows, which also hosts the service process itself) implement the platform specifics.
   - `paths.rs` holds the managed paths and, on macOS, the generated shell/plist templates.
   - `release.rs` handles GitHub release lookup/download and staging the core binaries.
+  - `app_update.rs` checks, verifies and installs the manager's own releases.
   - `settings.rs` persists user-level settings, currently the download accelerator.
   - `tray.rs` owns the system tray icon and its menu.
   - `helper.rs` (macOS only) owns the privileged LaunchDaemon helper.
@@ -139,6 +140,27 @@ through an accelerator prefix that can be changed under **设置 → 下载加�
 request has a connect timeout, a stall timeout and an overall timeout so a throttled connection
 fails over instead of hanging. Both the release lookup and the asset download stream their progress
 to the UI.
+
+## Updates
+
+The manager and the EasyTier core have separate release channels. The core is fetched from the
+EasyTier project's own releases as described above; the manager updates itself.
+
+**设置 → 关于** checks the manager's release channel and offers the new version when there is one.
+The package is downloaded through the same accelerator chain as the core, so a network that cannot
+reach GitHub directly can still update, and it is verified against the minisign public key in
+`tauri.conf.json` before anything is installed. The private half of that pair never leaves CI: it is
+the `TAURI_SIGNING_PRIVATE_KEY` repository secret, and the release workflow uses it to sign the
+`.app.tar.gz` and `.nsis.zip` archives whose signatures end up in the generated `latest.json`
+manifest. The key is stored without a password, but the workflow still sets
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to the empty string — leaving it unset makes the signer stop at
+an interactive prompt that nothing answers.
+
+On macOS the bundle is replaced in place and the app relaunches itself. On Windows the NSIS
+installer takes over and the process exits, coming back once the install finishes.
+
+A release has to bump `version` in `tauri.conf.json` to match the tag it is built from — the updater
+compares the two, and `latest.json` is stamped with the tag.
 
 ## Renamed from EasyTier Desktop
 

@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '../icons';
 import { useTheme, type ThemeMode } from '../theme';
-import type { Status } from '../api';
+import type { AppUpdateInfo, Status } from '../api';
 
 export interface SettingsProps {
   status: Status;
@@ -8,6 +8,7 @@ export interface SettingsProps {
   draftConfigServer: string;
   githubProxy: string;
   draftGithubProxy: string;
+  appUpdate: AppUpdateInfo | null;
   busy: string;
   onDraftChange: (value: string) => void;
   onSave: () => void;
@@ -15,6 +16,8 @@ export interface SettingsProps {
   onGithubProxyChange: (value: string) => void;
   onSaveGithubProxy: () => void;
   onResetGithubProxy: () => void;
+  onCheckAppUpdate: () => void;
+  onInstallAppUpdate: () => void;
 }
 
 const THEME_OPTIONS: Array<{ mode: ThemeMode; icon: IconName; label: string }> = [
@@ -29,6 +32,7 @@ export function Settings({
   draftConfigServer,
   githubProxy,
   draftGithubProxy,
+  appUpdate,
   busy,
   onDraftChange,
   onSave,
@@ -36,6 +40,8 @@ export function Settings({
   onGithubProxyChange,
   onSaveGithubProxy,
   onResetGithubProxy,
+  onCheckAppUpdate,
+  onInstallAppUpdate,
 }: SettingsProps) {
   const { mode, setMode } = useTheme();
   const working = busy !== '';
@@ -119,7 +125,7 @@ export function Settings({
               }}
             />
             <p className="hint">
-              用于加速从 GitHub 下载 EasyTier 安装包与更新；留空或恢复默认即使用
+              用于加速从 GitHub 下载 EasyTier 与管理器的安装包和更新；留空或恢复默认即使用
               https://gh-proxy.com/
             </p>
           </label>
@@ -183,6 +189,44 @@ export function Settings({
               </span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div className="grow">
+            <h3>关于</h3>
+          </div>
+        </div>
+        <div className="rows">
+          <div className="row">
+            <div className="label">
+              <strong>EasyTier Manager</strong>
+              <span>{status.appVersion && `v${status.appVersion}`}</span>
+            </div>
+            <div className="value">
+              {appUpdate?.hasUpdate ? (
+                <button className="btn primary sm" disabled={working} onClick={onInstallAppUpdate}>
+                  <Icon name="download" />
+                  更新至 v{appUpdate.latestVersion}
+                </button>
+              ) : (
+                <button className="btn ghost sm" disabled={working} onClick={onCheckAppUpdate}>
+                  <Icon name="refresh" />
+                  检查更新
+                </button>
+              )}
+            </div>
+          </div>
+          {appUpdate?.hasUpdate && (appUpdate.notes || appUpdate.date) && (
+            <div className="row">
+              <div className="label">
+                <strong>更新说明</strong>
+                {appUpdate.date && <span>发布于 {appUpdate.date}</span>}
+                {appUpdate.notes && <span>{appUpdate.notes}</span>}
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>
