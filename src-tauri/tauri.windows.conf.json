@@ -17,7 +17,7 @@
     ]
   },
   "bundle": {
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
     "windows": {
       "nsis": {
         "installMode": "perMachine"

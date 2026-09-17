@@ -24,7 +24,7 @@ elevated terminal.
 pnpm tauri build
 ```
 
-The bundle is written to `src-tauri/target/release/bundle/` — `dmg/` on macOS, `nsis/` and `msi/` on
+The bundle is written to `src-tauri/target/release/bundle/` — `dmg/` on macOS, `nsis/` on
 Windows. Platform-specific bundling is configured in `src-tauri/tauri.macos.conf.json` and
 `src-tauri/tauri.windows.conf.json`, which overlay the shared `tauri.conf.json`.
 

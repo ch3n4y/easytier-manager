@@ -69,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build NSIS and MSI installers
+      - name: Build NSIS installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
@@ -78,16 +78,13 @@ jobs:
       # In the default `createUpdaterArtifacts` mode the NSIS installer is its own
       # update bundle: the updater downloads the `.exe` and checks it against the
       # `.exe.sig` beside it. The `.nsis.zip` form only appears under
-      # `"v1Compatible"`. The MSI cannot self-update and is published for people
-      # installing by hand, signature included so they can verify it.
+      # `"v1Compatible"`.
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/nsis/*-setup.exe.sig
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/msi/*.msi.sig
 
   publish:
     name: Publish release
@@ -99,7 +96,7 @@ jobs:
       # Shared by the release and by `latest.json`, so the notes the updater
       # shows are the same ones on the release page.
       RELEASE_NOTES: |
-        macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS/MSI）。Windows 版本以管理员权限运行。
+        macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS）。Windows 版本以管理员权限运行。
 
         新增：管理器自身支持应用内更新，可在「设置 → 关于」中检查并安装新版本。
     steps:
@@ -109,8 +106,8 @@ jobs:
           merge-multiple: true
 
       # download-artifact keeps the directory structure each artifact was
-      # uploaded from, so the files arrive nested under `dmg/`, `macos/`, `nsis/`
-      # and `msi/`. Flatten them into one directory under URL-safe names, because
+      # uploaded from, so the files arrive nested under `dmg/`, `macos/` and
+      # `nsis/`. Flatten them into one directory under URL-safe names, because
       # `latest.json` refers to assets by name and the spaces in Tauri's file
       # names do not survive the trip through a download URL intact.
       - name: Collect release assets
