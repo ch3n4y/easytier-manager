@@ -98,7 +98,7 @@ jobs:
       RELEASE_NOTES: |
         macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS）。Windows 版本以管理员权限运行。
 
-        新增：管理器自身支持应用内更新，可在「设置 → 关于」中检查并安装新版本。
+        本版功能与 0.3.0 相同，仅提升版本号，用于验证应用内更新。
     steps:
       - uses: actions/download-artifact@v4
         with:
