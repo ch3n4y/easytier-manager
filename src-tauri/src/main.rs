@@ -123,6 +123,7 @@ fn main() {
             app::clear_logs,
             app::get_settings,
             app::save_settings,
+            app::quit_app,
             window::show_main_window,
         ])
         .run(tauri::generate_context!())

@@ -360,3 +360,13 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings> {
 pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
     settings::store(&app, &settings)
 }
+
+/// Leave for good. The window's own close button only hides it, so this is the
+/// real exit — the same one the tray menu offers.
+///
+/// The managed service is deliberately left alone: it is what keeps the core
+/// running while the manager is not, so quitting the UI must not stop it.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}

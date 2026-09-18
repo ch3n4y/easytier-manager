@@ -10,6 +10,7 @@ import {
   GetStatus,
   InstallAppUpdate,
   InstallLatest,
+  QuitApp,
   ReadConfig,
   ReadLogs,
   RestartService,
@@ -365,13 +366,16 @@ function Shell() {
         <div className="rail-spacer" data-app-drag />
 
         <div className="rail-foot">
-          <button className="rail-item" onClick={() => void getCurrentWindow().minimize()}>
-            <Icon name="minimize" />
-            最小化
-          </button>
+          {/* `close` rather than a bare `hide`: the window's own close button goes
+              through the same path, so both read as one action. The backend
+              intercepts it and hides instead of quitting. */}
           <button className="rail-item" onClick={() => void getCurrentWindow().close()}>
-            <Icon name="close" />
+            <Icon name="minimize" />
             隐藏到托盘
+          </button>
+          <button className="rail-item" onClick={() => void QuitApp()}>
+            <Icon name="exit" />
+            退出
           </button>
         </div>
         </aside>

@@ -100,3 +100,6 @@ export const SaveSettings = (settings: AppSettings) =>
 /** Reveal the window. The backend starts it hidden so the first frame the user
  *  sees is the finished one, and the shell calls this once it has painted. */
 export const ShowMainWindow = () => invoke<void>('show_main_window');
+
+/** Quit for real. Closing the window only hides it. */
+export const QuitApp = () => invoke<void>('quit_app');

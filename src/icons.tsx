@@ -23,6 +23,7 @@ export type IconName =
   | 'copy'
   | 'minimize'
   | 'close'
+  | 'exit'
   | 'sun'
   | 'moon'
   | 'monitor';
@@ -110,6 +111,12 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   minimize: <line x1="6" y1="12" x2="18" y2="12" />,
+  exit: (
+    <>
+      <path d="M12 3.5v8" />
+      <path d="M7.4 6.3a7 7 0 1 0 9.2 0" />
+    </>
+  ),
   close: (
     <>
       <line x1="6.5" y1="6.5" x2="17.5" y2="17.5" />
