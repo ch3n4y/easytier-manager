@@ -23,8 +23,6 @@ export type IconName =
   | 'copy'
   | 'minimize'
   | 'close'
-  | 'expand'
-  | 'collapse'
   | 'sun'
   | 'moon'
   | 'monitor';
@@ -116,22 +114,6 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <line x1="6.5" y1="6.5" x2="17.5" y2="17.5" />
       <line x1="17.5" y1="6.5" x2="6.5" y2="17.5" />
-    </>
-  ),
-  expand: (
-    <>
-      <path d="M14 4h6v6" />
-      <path d="M20 4l-7 7" />
-      <path d="M10 20H4v-6" />
-      <path d="M4 20l7-7" />
-    </>
-  ),
-  collapse: (
-    <>
-      <path d="M20 10h-6V4" />
-      <path d="M14 10l7-7" />
-      <path d="M4 14h6v6" />
-      <path d="M10 14l-7 7" />
     </>
   ),
   sun: (

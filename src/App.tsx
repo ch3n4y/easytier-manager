@@ -15,17 +15,16 @@ import {
   RestartService,
   SaveConfig,
   SaveSettings,
+  ShowMainWindow,
   StartService,
   StopService,
   UpdateCore,
 } from './api';
 import type { AppUpdateInfo, DownloadProgress, Status, UpdateInfo } from './api';
-import { CompactCard } from './CompactCard';
 import { Icon } from './icons';
 import { Sheet } from './Sheet';
 import { ThemeProvider } from './theme';
 import { installWindowDragHandler } from './windowDrag';
-import { WindowModeProvider, useWindowMode } from './windowMode';
 import { Overview } from './views/Overview';
 import { Settings } from './views/Settings';
 
@@ -108,10 +107,9 @@ function Shell() {
   const [githubProxy, setGithubProxy] = useState('');
   const [draftGithubProxy, setDraftGithubProxy] = useState('');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
-
-  const { mode, setMode } = useWindowMode();
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
+  // False until the first status lands. The shell reads every field it renders,
+  // so painting it before that would flash empty defaults and then correct them.
+  const [ready, setReady] = useState(false);
 
   // Background polling must not race an in-flight action, and it must not
   // overwrite a config the user is halfway through editing.
@@ -142,22 +140,22 @@ function Shell() {
     setStatus(nextStatus);
     setConfigServer(nextConfig.configServer || '');
     if (!draftTouched.current) setDraftConfigServer(nextConfig.configServer || '');
-    // The log tail only exists in the expanded workbench; skip the read while
-    // the compact card is up.
-    if (modeRef.current === 'expanded') {
-      try {
-        setLogs(await ReadLogs(LOG_LIMIT));
-      } catch {
-        // Log tailing is best-effort: a read failure must not blank the status.
-      }
+    try {
+      setLogs(await ReadLogs(LOG_LIMIT));
+    } catch {
+      // Log tailing is best-effort: a read failure must not blank the status.
     }
   }
 
   useEffect(() => {
-    void readState().catch(() => {
-      // First paint can lose the race against the helper install; the poller
-      // below picks the state up on its next tick.
-    });
+    void readState()
+      .catch(() => {
+        // First paint can lose the race against the helper install; the poller
+        // below picks the state up on its next tick.
+      })
+      // Whether or not that read worked, the shell is what shows the failure —
+      // spinning forever would be the worse answer.
+      .finally(() => setReady(true));
     const id = window.setInterval(() => {
       // Editing the config must not freeze the poller: readState only skips the
       // draft field while the user is typing, and still refreshes the status.
@@ -166,11 +164,18 @@ function Shell() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Expanding reveals the log panel; fill it immediately instead of waiting
-  // for the next poll tick.
+  // The backend starts the window hidden so its first frame is the finished
+  // shell rather than an empty one; this is the other half of that bargain.
+  // Two frames past mount is the earliest point at which the shell is painted,
+  // and the backend unveils anyway if this never runs.
   useEffect(() => {
-    if (mode === 'expanded') void readState().catch(() => undefined);
-  }, [mode]);
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        void ShowMainWindow().catch(() => undefined);
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   // A long download would otherwise look like a hang, so the backend streams
   // bytes as it fetches the release asset.
@@ -196,11 +201,8 @@ function Shell() {
     })();
   }, []);
 
-  // The compact card is fixed-size, so double-click must not maximize it.
-  useEffect(
-    () => installWindowDragHandler({ canToggleMaximize: () => modeRef.current === 'expanded' }),
-    [],
-  );
+  // The window is frameless, so dragging and the double-click zoom are ours.
+  useEffect(() => installWindowDragHandler(), []);
 
   useEffect(() => {
     if (!message) return;
@@ -313,23 +315,20 @@ function Shell() {
       : BUSY_LABEL[busy]
     : '';
 
-  if (mode === 'compact') {
+  const title = VIEW_META[view];
+
+  // The window is already on screen at this point — it is revealed as soon as
+  // the shell paints — so this is the first thing the user sees: chrome and a
+  // spinner, and nothing that reads as data before the status arrives.
+  if (!ready) {
     return (
-      <CompactCard
-        status={status}
-        busy={busy}
-        busyLabel={busyText}
-        message={message}
-        error={error}
-        onInstall={() => void installLatest()}
-        onStart={() => void startService()}
-        onStop={() => void stopService()}
-        onExpand={() => setMode('expanded')}
-      />
+      <div className="shell">
+        <div className="boot" data-app-drag>
+          <Icon name="loader" />
+        </div>
+      </div>
     );
   }
-
-  const title = VIEW_META[view];
 
   return (
     <>
@@ -364,11 +363,6 @@ function Shell() {
         </nav>
 
         <div className="rail-spacer" data-app-drag />
-
-        <button className="rail-item rail-collapse" onClick={() => setMode('compact')}>
-          <Icon name="collapse" />
-          收起
-        </button>
 
         <div className="rail-foot">
           <button className="rail-item" onClick={() => void getCurrentWindow().minimize()}>
@@ -468,9 +462,7 @@ function Shell() {
 function App() {
   return (
     <ThemeProvider>
-      <WindowModeProvider>
-        <Shell />
-      </WindowModeProvider>
+      <Shell />
     </ThemeProvider>
   );
 }

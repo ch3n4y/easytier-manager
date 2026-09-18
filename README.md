@@ -32,7 +32,7 @@ Windows. Platform-specific bundling is configured in `src-tauri/tauri.macos.conf
 
 - `src/` — React UI. All backend access goes through the typed `invoke` wrappers in `src/api.ts`.
   `styles.css` carries the whole design system (oklch tokens, the `.pop` card material, components);
-  `App.tsx` is the shell, `CompactCard.tsx` the small-window form and `views/` the expanded surfaces.
+  `App.tsx` is the shell and `views/` holds the surfaces.
 - `src-tauri/` — Rust backend.
   - `app.rs` exposes the `#[tauri::command]` surface and holds the shared app/admin state.
   - `platform/` owns the privileged operations, split into `macos.rs` (helper-based) and
@@ -81,15 +81,17 @@ time, so changing it only needs a restart.
 virtual adapter cannot be created; `Packet.dll` / `WinDivert64.sys` back the packet-capture features
 and are installed when the release ships them.
 
-## Window Modes
+## Window
 
-The window has two shapes. It opens as a compact at-a-glance card (status medallion, one primary
-action) and expands into the rail + stage workbench; the rail's footer collapses it again. The
-backend owns the native resize — `window.rs` keeps the window's visual center and clamps it into the
-current monitor's work area — and the frontend only stamps `data-window-mode` on `<html>` so the CSS
-can key the layout on it. The compact card is fixed-size; the expanded workbench is user-resizable.
-The window stays frameless and transparent on both platforms, so the custom chrome is the only
-title bar.
+One shape: the rail + stage workbench, frameless, with the custom chrome doubling as the title bar
+and double-click on a drag region toggling maximize. `window.rs` sizes the window against the
+monitor it opens on — the configured 980×660 gives way to the work area when the display is small or
+scaled, because a window whose edges sit off-screen is worse than a cramped one — and keeps its
+center while doing so.
+
+The window is created hidden, and the shell reveals it once it has painted: startup would otherwise
+show an empty dark frame and then visibly reshape it. The backend unveils the window anyway after
+five seconds, so a webview that fails to load cannot leave the app invisible.
 
 ## System Tray
 

@@ -21,7 +21,13 @@ mod window;
 mod winservice;
 
 use app::AppState;
+use std::time::Duration;
 use tauri::Manager;
+
+/// How long the window waits for the frontend to paint before showing itself
+/// anyway. Long enough that a normal load never reaches it, short enough that a
+/// webview which never loads does not leave the app invisible.
+const STARTUP_REVEAL_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() {
     // macOS: the installed LaunchDaemon re-invokes this same binary as the
@@ -71,6 +77,22 @@ fn main() {
             // stay alive for the tray icon to tell the user anything. Quitting is
             // on the tray menu.
             if let Some(window) = app.get_webview_window("main") {
+                // Sized before it is ever shown, so the first frame the user sees
+                // is the final one — no empty webview, no visible reshape.
+                if let Err(err) = window::apply_startup_size(&window) {
+                    eprintln!("window sizing failed: {err}");
+                }
+
+                // A hidden window is the whole point of the above, so there has
+                // to be a way out if the frontend never reports in.
+                let unrevealed = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(STARTUP_REVEAL_TIMEOUT).await;
+                    if !unrevealed.is_visible().unwrap_or(true) {
+                        let _ = unrevealed.show();
+                    }
+                });
+
                 let window_to_hide = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -101,7 +123,7 @@ fn main() {
             app::clear_logs,
             app::get_settings,
             app::save_settings,
-            window::set_window_mode,
+            window::show_main_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

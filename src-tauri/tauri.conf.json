@@ -14,13 +14,16 @@
       {
         "label": "main",
         "title": "EasyTier Manager",
-        "width": 400,
-        "height": 340,
-        "resizable": false,
+        "width": 980,
+        "height": 660,
+        "minWidth": 860,
+        "minHeight": 580,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "shadow": false,
-        "center": true
+        "center": true,
+        "visible": false
       }
     ],
     "security": {

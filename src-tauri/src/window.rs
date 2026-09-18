@@ -1,33 +1,20 @@
-//! Window form factor. The app opens as a compact at-a-glance card and expands
-//! into the full workbench (rail + stage). One window, two shapes: compact is
-//! fixed-size, expanded is user-resizable within a minimum, and both
-//! transitions keep the window's visual center in place, clamped into the
-//! current monitor's work area so no edge ends up off-screen.
+//! Startup window sizing.
+//!
+//! The app has one shape — the rail + stage workbench — sized from
+//! [`DEFAULT_SIZE`], but never larger than the monitor can show: on a small or
+//! scaled display the work area wins, because a window whose edges sit off-screen
+//! is worse than a slightly cramped one.
+//!
+//! Sizing happens while the window is still hidden, and the window is only shown
+//! once the frontend has painted. That is what keeps startup from flashing an
+//! empty dark frame and then visibly reshaping it.
 
-use serde::{Deserialize, Serialize};
-use tauri::{LogicalSize, Manager, PhysicalPosition};
+use tauri::{LogicalSize, Manager, PhysicalPosition, WebviewWindow};
 
 use crate::error::{Error, Result};
 
-pub const COMPACT_SIZE: (f64, f64) = (400.0, 340.0);
-pub const EXPANDED_DEFAULT_SIZE: (f64, f64) = (980.0, 660.0);
-pub const EXPANDED_MIN_SIZE: (f64, f64) = (860.0, 580.0);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WindowMode {
-    Compact,
-    Expanded,
-}
-
-/// What the backend actually applied, echoed to the frontend.
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WindowModeReport {
-    pub mode: WindowMode,
-    pub width: f64,
-    pub height: f64,
-}
+pub const DEFAULT_SIZE: (f64, f64) = (980.0, 660.0);
+pub const MIN_SIZE: (f64, f64) = (860.0, 580.0);
 
 /// Axis-aligned rectangle in physical pixels, mirroring the monitor work area
 /// and the window's outer frame closely enough for the placement math below.
@@ -39,12 +26,12 @@ pub struct Rect {
     pub h: f64,
 }
 
-/// Requested expanded size normalized against the minimum and the work area
-/// (all logical px). An oversized request shrinks to the work area; an
-/// undersized one grows to the minimum. When the work area itself is smaller
-/// than the minimum, the work area wins — a fully reachable window beats a
-/// "big enough" one whose edges sit off-screen.
-pub fn normalize_expanded_size(
+/// Requested size normalized against the minimum and the work area (all logical
+/// px). An oversized request shrinks to the work area; an undersized one grows to
+/// the minimum. When the work area itself is smaller than the minimum, the work
+/// area wins — a fully reachable window beats a "big enough" one whose edges sit
+/// off-screen.
+pub fn normalize_size(
     width: Option<f64>,
     height: Option<f64>,
     work_logical: (f64, f64),
@@ -57,18 +44,8 @@ pub fn normalize_expanded_size(
         value.clamp(floor, work.max(floor))
     };
     (
-        clamp_axis(
-            width,
-            EXPANDED_DEFAULT_SIZE.0,
-            EXPANDED_MIN_SIZE.0,
-            work_logical.0,
-        ),
-        clamp_axis(
-            height,
-            EXPANDED_DEFAULT_SIZE.1,
-            EXPANDED_MIN_SIZE.1,
-            work_logical.1,
-        ),
+        clamp_axis(width, DEFAULT_SIZE.0, MIN_SIZE.0, work_logical.0),
+        clamp_axis(height, DEFAULT_SIZE.1, MIN_SIZE.1, work_logical.1),
     )
 }
 
@@ -88,24 +65,14 @@ pub fn placement(prev: Rect, target_w: f64, target_h: f64, work: Rect) -> (f64, 
     (x, y)
 }
 
-/// Apply a form factor to the main window. Ordering is load-bearing: the
-/// expanded minimum must be lifted *before* shrinking to compact (an 860×580
-/// floor would swallow the 400×340 request), and set *after* growing so the
-/// grow itself is never constrained by a stale floor.
-#[tauri::command]
-pub fn set_window_mode(app: tauri::AppHandle, mode: WindowMode) -> Result<WindowModeReport> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::msg("main window unavailable"))?;
-    // A maximized frame swallows set_size on some platforms; leave the
-    // maximized state before reshaping.
-    if window.is_maximized().unwrap_or(false) {
-        let _ = window.unmaximize();
-    }
-    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
+/// Fit the main window to the monitor it opens on. Leaves it hidden; the
+/// frontend shows it once it has something to show.
+pub fn apply_startup_size(window: &WebviewWindow) -> Result<()> {
     let win_err = |op: &str, e: tauri::Error| Error::msg(format!("window {op}: {e}"));
+    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
 
-    // Previous outer frame (physical px) — the center we preserve.
+    // The configured frame, already centered by the window manager: its center
+    // is what the resize below preserves.
     let prev_pos = window
         .outer_position()
         .map_err(|e| win_err("position", e))?;
@@ -117,80 +84,58 @@ pub fn set_window_mode(app: tauri::AppHandle, mode: WindowMode) -> Result<Window
         h: prev_size.height as f64,
     };
 
-    // Work area of whichever monitor hosts the window right now (fall back to
-    // primary, then to a frame around the current position so placement still
-    // has something sane to clamp against).
+    // Whichever monitor hosts the window, falling back to the primary one. With
+    // neither there is nothing to measure against, so the configured size stands.
     let monitor = window
         .current_monitor()
         .ok()
         .flatten()
         .or_else(|| window.primary_monitor().ok().flatten());
-    let work = monitor
-        .as_ref()
-        .map(|m| {
-            let area = m.work_area();
-            Rect {
-                x: area.position.x as f64,
-                y: area.position.y as f64,
-                w: area.size.width as f64,
-                h: area.size.height as f64,
-            }
-        })
-        .unwrap_or(Rect {
-            x: prev.x,
-            y: prev.y,
-            w: prev.w.max(COMPACT_SIZE.0 * scale),
-            h: prev.h.max(COMPACT_SIZE.1 * scale),
-        });
-
-    let (logical_w, logical_h) = match mode {
-        WindowMode::Compact => COMPACT_SIZE,
-        WindowMode::Expanded => {
-            normalize_expanded_size(None, None, (work.w / scale, work.h / scale))
-        }
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+    let area = monitor.work_area();
+    let work = Rect {
+        x: area.position.x as f64,
+        y: area.position.y as f64,
+        w: area.size.width as f64,
+        h: area.size.height as f64,
     };
 
-    match mode {
-        WindowMode::Compact => {
-            window
-                .set_min_size(None::<LogicalSize<f64>>)
-                .map_err(|e| win_err("min size", e))?;
-            window
-                .set_size(LogicalSize::new(logical_w, logical_h))
-                .map_err(|e| win_err("resize", e))?;
-            window
-                .set_resizable(false)
-                .map_err(|e| win_err("resizable", e))?;
-        }
-        WindowMode::Expanded => {
-            window
-                .set_resizable(true)
-                .map_err(|e| win_err("resizable", e))?;
-            window
-                .set_size(LogicalSize::new(logical_w, logical_h))
-                .map_err(|e| win_err("resize", e))?;
-            // On a work area smaller than the nominal minimum the applied size
-            // already shrank below it — the floor must follow, or the user
-            // could never drag the window back inside the screen.
-            window
-                .set_min_size(Some(LogicalSize::new(
-                    EXPANDED_MIN_SIZE.0.min(logical_w),
-                    EXPANDED_MIN_SIZE.1.min(logical_h),
-                )))
-                .map_err(|e| win_err("min size", e))?;
-        }
-    }
+    let (logical_w, logical_h) = normalize_size(None, None, (work.w / scale, work.h / scale));
+
+    window
+        .set_size(LogicalSize::new(logical_w, logical_h))
+        .map_err(|e| win_err("resize", e))?;
+    // On a work area smaller than the nominal minimum the applied size already
+    // shrank below it — the floor has to follow, or the user could never drag the
+    // window back inside the screen.
+    window
+        .set_min_size(Some(LogicalSize::new(
+            MIN_SIZE.0.min(logical_w),
+            MIN_SIZE.1.min(logical_h),
+        )))
+        .map_err(|e| win_err("min size", e))?;
 
     let (x, y) = placement(prev, logical_w * scale, logical_h * scale, work);
     window
         .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
         .map_err(|e| win_err("reposition", e))?;
 
-    Ok(WindowModeReport {
-        mode,
-        width: logical_w,
-        height: logical_h,
-    })
+    Ok(())
+}
+
+/// Reveal the main window, already sized. The frontend calls this once it has
+/// painted, which is what keeps startup from showing an empty frame first.
+#[tauri::command]
+pub fn show_main_window(app: tauri::AppHandle) -> Result<()> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| Error::msg("main window unavailable"))?;
+    let win_err = |op: &str, e: tauri::Error| Error::msg(format!("window {op}: {e}"));
+    window.show().map_err(|e| win_err("show", e))?;
+    window.set_focus().map_err(|e| win_err("focus", e))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -242,32 +187,27 @@ mod tests {
     }
 
     #[test]
-    fn expanded_size_defaults_and_clamps() {
+    fn size_defaults_and_clamps() {
         // Defaults when unspecified.
         assert_eq!(
-            normalize_expanded_size(None, None, (1728.0, 1052.0)),
-            EXPANDED_DEFAULT_SIZE
-        );
-        // A remembered size passes through when it fits.
-        assert_eq!(
-            normalize_expanded_size(Some(1280.0), Some(800.0), (1728.0, 1052.0)),
-            (1280.0, 800.0)
+            normalize_size(None, None, (1728.0, 1052.0)),
+            DEFAULT_SIZE
         );
         // Oversized request shrinks to the work area.
         assert_eq!(
-            normalize_expanded_size(Some(3000.0), Some(2000.0), (1728.0, 1052.0)),
+            normalize_size(Some(3000.0), Some(2000.0), (1728.0, 1052.0)),
             (1728.0, 1052.0)
         );
         // Undersized / nonsense requests grow to the minimum.
         assert_eq!(
-            normalize_expanded_size(Some(100.0), Some(f64::NAN), (1728.0, 1052.0)),
-            (EXPANDED_MIN_SIZE.0, EXPANDED_DEFAULT_SIZE.1)
+            normalize_size(Some(100.0), Some(f64::NAN), (1728.0, 1052.0)),
+            (MIN_SIZE.0, DEFAULT_SIZE.1)
         );
         // A work area smaller than the minimum wins over the minimum: the
         // window must stay fully reachable (1366×768 laptop at 125% scale).
         assert_eq!(
-            normalize_expanded_size(None, None, (1092.8, 582.4)),
-            (EXPANDED_DEFAULT_SIZE.0, 582.4)
+            normalize_size(None, None, (1092.8, 582.4)),
+            (DEFAULT_SIZE.0, 582.4)
         );
     }
 }

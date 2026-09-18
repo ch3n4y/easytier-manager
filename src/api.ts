@@ -41,14 +41,6 @@ export type AppUpdateInfo = {
   date: string;
 };
 
-export type WindowMode = 'compact' | 'expanded';
-
-export type WindowModeReport = {
-  mode: WindowMode;
-  width: number;
-  height: number;
-};
-
 export type AppSettings = {
   /** Prefix prepended to GitHub URLs when downloading release assets. */
   githubProxy: string;
@@ -105,5 +97,6 @@ export const GetSettings = () => invoke<AppSettings>('get_settings');
 export const SaveSettings = (settings: AppSettings) =>
   invoke<AppSettings>('save_settings', {settings});
 
-export const SetWindowMode = (mode: WindowMode) =>
-  invoke<WindowModeReport>('set_window_mode', {mode});
+/** Reveal the window. The backend starts it hidden so the first frame the user
+ *  sees is the finished one, and the shell calls this once it has painted. */
+export const ShowMainWindow = () => invoke<void>('show_main_window');

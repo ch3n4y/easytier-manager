@@ -11,10 +11,7 @@ export const DRAG_REGION_ATTR = 'data-app-drag';
  * OS drag session swallow the second click of a double-click, which would make
  * the zoom toggle unreliable. Dragging still starts on the first pixel moved.
  */
-export function installWindowDragHandler(
-  options: { canToggleMaximize?: () => boolean } = {},
-): () => void {
-  const { canToggleMaximize } = options;
+export function installWindowDragHandler(): () => void {
   let pressed: { x: number; y: number } | null = null;
 
   const isDragRegion = (target: EventTarget | null): target is HTMLElement =>
@@ -25,8 +22,7 @@ export function installWindowDragHandler(
     event.preventDefault(); // no text cursor / selection on the bar
     if (event.detail >= 2) {
       pressed = null;
-      // The compact card is fixed-size, so double-click must not maximize it.
-      if (canToggleMaximize?.() ?? true) void getCurrentWindow().toggleMaximize();
+      void getCurrentWindow().toggleMaximize();
       return;
     }
     // Screen coordinates: client coordinates shift under the pointer the moment
