@@ -20,7 +20,11 @@
     "targets": ["nsis"],
     "windows": {
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "languages": ["SimpChinese"],
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installerHooks": "installer/windows-hooks.nsh"
       }
     }
   }

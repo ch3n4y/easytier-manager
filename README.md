@@ -151,13 +151,26 @@ The package is downloaded through the same accelerator chain as the core, so a n
 reach GitHub directly can still update, and it is verified against the minisign public key in
 `tauri.conf.json` before anything is installed. The private half of that pair never leaves CI: it is
 the `TAURI_SIGNING_PRIVATE_KEY` repository secret, and the release workflow uses it to sign the
-`.app.tar.gz` and `.nsis.zip` archives whose signatures end up in the generated `latest.json`
-manifest. The key is stored without a password, but the workflow still sets
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to the empty string — leaving it unset makes the signer stop at
-an interactive prompt that nothing answers.
+update packages — `.app.tar.gz` on macOS, and the NSIS installer itself on Windows, which under the
+default `createUpdaterArtifacts` mode *is* the update bundle rather than the `.nsis.zip` that v1
+produced. Their signatures end up in the generated `latest.json` manifest. The key is stored without
+a password, but the workflow still sets `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to the empty string —
+leaving it unset makes the signer stop at an interactive prompt that nothing answers.
 
 On macOS the bundle is replaced in place and the app relaunches itself. On Windows the NSIS
 installer takes over and the process exits, coming back once the install finishes.
+
+Both platforms run the core as a service, and on Windows that service *is* this binary, re-invoked
+as `--service-host`. The installer kills every process carrying the binary's name before it replaces
+the file, so an update would otherwise leave the core stopped with nothing left to notice it had
+been up. The restore lives in the installer rather than in the app —
+`src-tauri/installer/windows-hooks.nsh`, wired up through `bundle.windows.nsis.installerHooks`: it
+stops the core deliberately before the swap and starts it again afterwards, but only if it was
+running to begin with. That placement is the point. The build doing the updating is the one being
+replaced, so it cannot arrange its successor's behaviour, whereas a *new* installer runs on every
+update — including the one that first ships the hook; an app-side fix would only have taken effect
+from the update after that. macOS runs the core under its own LaunchDaemon wrapper, which an update
+never touches, so it has nothing to restore.
 
 A release has to bump `version` in `tauri.conf.json` to match the tag it is built from — the updater
 compares the two, and `latest.json` is stamped with the tag.
