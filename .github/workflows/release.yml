@@ -99,6 +99,7 @@ jobs:
         macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS）。Windows 版本以管理员权限运行。
 
         - 移除小窗口模式，启动直接进入完整界面。
+        - 底部改为「隐藏到托盘」与「退出」两个按钮：最小化并入隐藏到托盘，退出不再只能从托盘菜单进入。
         - 启动时不再黑屏：窗口等界面绘制完成后才显示，状态返回前显示加载指示。
     steps:
       - uses: actions/download-artifact@v4
