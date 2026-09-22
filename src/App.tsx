@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   CheckAppUpdate,
   CheckCoreUpdate,
@@ -10,7 +9,6 @@ import {
   GetStatus,
   InstallAppUpdate,
   InstallLatest,
-  QuitApp,
   ReadConfig,
   ReadLogs,
   RestartService,
@@ -22,14 +20,16 @@ import {
   UpdateCore,
 } from './api';
 import type { AppUpdateInfo, DownloadProgress, Status, UpdateInfo } from './api';
+import { ClearLogsSheet } from './ClearLogsSheet';
+import { DEFAULT_GITHUB_PROXY } from './defaults';
 import { Icon } from './icons';
-import { Sheet } from './Sheet';
+import { VIEW_NAV, type View } from './navigation';
+import { Rail } from './Rail';
 import { ThemeProvider } from './theme';
 import { installWindowDragHandler } from './windowDrag';
 import { Overview } from './views/Overview';
 import { Settings } from './views/Settings';
 
-type View = 'overview' | 'settings';
 type Busy =
   | ''
   | 'install'
@@ -49,10 +49,7 @@ const LOG_LIMIT = 200;
 const POLL_MS = 5000;
 const MB = 1024 * 1024;
 
-/** Kept in sync with `settings::DEFAULT_GITHUB_PROXY` on the backend. */
-const DEFAULT_GITHUB_PROXY = 'https://gh-proxy.com/';
-
-const BUSY_LABEL: Record<string, string> = {
+const BUSY_LABEL: Record<Exclude<Busy, ''>, string> = {
   install: '安装 EasyTier',
   start: '启动服务',
   stop: '停止服务',
@@ -67,9 +64,15 @@ const BUSY_LABEL: Record<string, string> = {
   proxy: '保存加速地址',
 };
 
-const VIEW_META: Record<View, string> = {
-  overview: '概览',
-  settings: '设置',
+/** Actions whose only result is "the service status changed". */
+type StatusAction = 'start' | 'stop' | 'restart' | 'update';
+
+/** Busy key, command and confirmation copy for those actions, in one place. */
+const STATUS_ACTIONS: Record<StatusAction, { call: () => Promise<Status>; done: string }> = {
+  start: { call: StartService, done: '服务已启动' },
+  stop: { call: StopService, done: '服务已停止' },
+  restart: { call: RestartService, done: '服务已重启' },
+  update: { call: UpdateCore, done: 'EasyTier 核心已更新' },
 };
 
 /**
@@ -219,26 +222,18 @@ function Shell() {
     });
   }
 
-  async function startService() {
-    await run('start', StartService, (nextStatus) => {
+  /** The four lifecycle actions share one shape: run, then report the new status. */
+  function statusAction(key: StatusAction) {
+    return run(key, STATUS_ACTIONS[key].call, (nextStatus) => {
       setStatus(nextStatus);
-      setMessage('服务已启动');
+      setMessage(STATUS_ACTIONS[key].done);
     });
   }
 
-  async function stopService() {
-    await run('stop', StopService, (nextStatus) => {
-      setStatus(nextStatus);
-      setMessage('服务已停止');
-    });
-  }
-
-  async function restartService() {
-    await run('restart', RestartService, (nextStatus) => {
-      setStatus(nextStatus);
-      setMessage('服务已重启');
-    });
-  }
+  const startService = () => statusAction('start');
+  const stopService = () => statusAction('stop');
+  const restartService = () => statusAction('restart');
+  const updateCore = () => statusAction('update');
 
   async function saveConfig() {
     const server = draftConfigServer.trim();
@@ -271,13 +266,6 @@ function Shell() {
     await run('check', CheckCoreUpdate, (info) => {
       setUpdateInfo(info);
       setMessage(info.hasUpdate ? `发现新版本 v${info.latestVersion}` : 'EasyTier 已是最新版本');
-    });
-  }
-
-  async function updateCore() {
-    await run('update', UpdateCore, (nextStatus) => {
-      setStatus(nextStatus);
-      setMessage('EasyTier 核心已更新');
     });
   }
 
@@ -316,7 +304,7 @@ function Shell() {
       : BUSY_LABEL[busy]
     : '';
 
-  const title = VIEW_META[view];
+  const title = VIEW_NAV[view].label;
 
   // The window is already on screen at this point — it is revealed as soon as
   // the shell paints — so this is the first thing the user sees: chrome and a
@@ -334,51 +322,7 @@ function Shell() {
   return (
     <>
       <div className="shell">
-        <aside className="pop rail" data-app-drag>
-        <div className="rail-brand" data-app-drag>
-          <div className="mark" data-app-drag>
-            ET
-          </div>
-          <div className="wordmark" data-app-drag>
-            EasyTier Manager
-          </div>
-        </div>
-
-        <nav className="rail-nav" aria-label="主导航">
-          <button
-            className={`rail-item${view === 'overview' ? ' active' : ''}`}
-            aria-current={view === 'overview' ? 'page' : undefined}
-            onClick={() => setView('overview')}
-          >
-            <Icon name="house" />
-            概览
-          </button>
-          <button
-            className={`rail-item${view === 'settings' ? ' active' : ''}`}
-            aria-current={view === 'settings' ? 'page' : undefined}
-            onClick={() => setView('settings')}
-          >
-            <Icon name="gear" />
-            设置
-          </button>
-        </nav>
-
-        <div className="rail-spacer" data-app-drag />
-
-        <div className="rail-foot">
-          {/* `close` rather than a bare `hide`: the window's own close button goes
-              through the same path, so both read as one action. The backend
-              intercepts it and hides instead of quitting. */}
-          <button className="rail-item" onClick={() => void getCurrentWindow().close()}>
-            <Icon name="minimize" />
-            隐藏到托盘
-          </button>
-          <button className="rail-item" onClick={() => void QuitApp()}>
-            <Icon name="exit" />
-            退出
-          </button>
-        </div>
-        </aside>
+        <Rail view={view} onSelectView={setView} />
 
         <main className="pop stage">
         <header className="stage-head" data-app-drag>
@@ -442,23 +386,12 @@ function Shell() {
         </main>
       </div>
 
-      <Sheet open={clearOpen} onDismiss={() => setClearOpen(false)} labelledBy="clear-logs-title">
-        <div className="sheet-head">
-          <div className="grow">
-            <h3 id="clear-logs-title">清空日志？</h3>
-            <p>日志文件会被直接截断，已写入的内容无法恢复。</p>
-          </div>
-        </div>
-        <div className="sheet-foot">
-          <button className="btn ghost" data-autofocus onClick={() => setClearOpen(false)}>
-            取消
-          </button>
-          <button className="btn danger push" disabled={busy !== ''} onClick={() => void clearLogs()}>
-            <Icon name="trash" />
-            清空日志
-          </button>
-        </div>
-      </Sheet>
+      <ClearLogsSheet
+        open={clearOpen}
+        busy={busy !== ''}
+        onDismiss={() => setClearOpen(false)}
+        onConfirm={() => void clearLogs()}
+      />
     </>
   );
 }

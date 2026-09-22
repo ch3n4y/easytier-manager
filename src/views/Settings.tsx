@@ -1,6 +1,7 @@
 import { Icon, type IconName } from '../icons';
 import { useTheme, type ThemeMode } from '../theme';
 import type { AppUpdateInfo, Status } from '../api';
+import { DEFAULT_GITHUB_PROXY } from '../defaults';
 
 export interface SettingsProps {
   status: Status;
@@ -118,7 +119,7 @@ export function Settings({
               value={draftGithubProxy}
               spellCheck={false}
               autoComplete="off"
-              placeholder="https://gh-proxy.com/"
+              placeholder={DEFAULT_GITHUB_PROXY}
               onChange={(event) => onGithubProxyChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && canSaveProxy) onSaveGithubProxy();
@@ -126,7 +127,7 @@ export function Settings({
             />
             <p className="hint">
               用于加速从 GitHub 下载 EasyTier 与管理器的安装包和更新；留空或恢复默认即使用
-              https://gh-proxy.com/
+              {DEFAULT_GITHUB_PROXY}
             </p>
           </label>
           <div className="actions">
