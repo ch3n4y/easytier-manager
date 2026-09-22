@@ -139,6 +139,29 @@ async fn current_status(app: &AppHandle, state: &AppState) -> Result<Status> {
     run_blocking(move || Ok(build_status(ready, error, app_version))).await
 }
 
+/// The service manager accepts an action before it has finished applying it, so
+/// every lifecycle command lets it settle before reading the status back.
+const SERVICE_SETTLE_MS: u64 = 400;
+/// A restart takes longer than a start or a stop.
+const SERVICE_RESTART_SETTLE_MS: u64 = 600;
+
+/// Wait for the service manager to settle, then read the resulting status.
+async fn settle_and_report(app: &AppHandle, state: &AppState, settle_ms: u64) -> Result<Status> {
+    tokio::time::sleep(Duration::from_millis(settle_ms)).await;
+    current_status(app, state).await
+}
+
+/// Apply a lifecycle action, then report the status it produced.
+async fn apply_and_report(
+    app: &AppHandle,
+    state: &AppState,
+    action: ServiceAction,
+    settle_ms: u64,
+) -> Result<Status> {
+    platform::apply_service(state, action).await?;
+    settle_and_report(app, state, settle_ms).await
+}
+
 /// Download progress handed to the webview while an asset is fetched. Shared by
 /// the EasyTier core download and the manager's own, so the frontend keeps a
 /// single listener.
@@ -185,30 +208,28 @@ pub async fn install_latest(app: AppHandle, state: State<'_, AppState>) -> Resul
     run_blocking(move || stage_install_files(&stage_path, &tag)).await?;
 
     platform::install_privileged(state.inner(), stage.path()).await?;
-    platform::apply_service(state.inner(), ServiceAction::Install).await?;
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    current_status(&app, state.inner()).await
+    apply_and_report(&app, state.inner(), ServiceAction::Install, SERVICE_SETTLE_MS).await
 }
 
 #[tauri::command]
 pub async fn start_service(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
-    platform::apply_service(state.inner(), ServiceAction::Start).await?;
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    current_status(&app, state.inner()).await
+    apply_and_report(&app, state.inner(), ServiceAction::Start, SERVICE_SETTLE_MS).await
 }
 
 #[tauri::command]
 pub async fn stop_service(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
-    platform::apply_service(state.inner(), ServiceAction::Stop).await?;
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    current_status(&app, state.inner()).await
+    apply_and_report(&app, state.inner(), ServiceAction::Stop, SERVICE_SETTLE_MS).await
 }
 
 #[tauri::command]
 pub async fn restart_service(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
-    platform::apply_service(state.inner(), ServiceAction::Restart).await?;
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    current_status(&app, state.inner()).await
+    apply_and_report(
+        &app,
+        state.inner(),
+        ServiceAction::Restart,
+        SERVICE_RESTART_SETTLE_MS,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -291,8 +312,7 @@ pub async fn update_core(app: AppHandle, state: State<'_, AppState>) -> Result<S
         (_, Err(restart)) => return Err(restart),
         (Ok(()), Ok(())) => {}
     }
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    current_status(&app, state.inner()).await
+    settle_and_report(&app, state.inner(), SERVICE_RESTART_SETTLE_MS).await
 }
 
 /// Resolve the manager's own release channel and remember what it offered, so
