@@ -15,7 +15,8 @@ use crate::helper::{
     run_helper_script, run_helper_service,
 };
 use crate::paths::{
-    config_dir, install_script, log_path, service_env_path, update_script, LOG_ROOT,
+    config_dir, install_script, log_path, log_permission_script, service_env_path, update_script,
+    LOG_ROOT,
 };
 use crate::service::ServiceAction;
 use crate::util::{shell_quote, shell_quote_path, tail_file};
@@ -154,7 +155,42 @@ pub async fn startup(state: &AppState) {
 }
 
 pub async fn prepare(state: &AppState) -> Result<()> {
-    warm_helper(state).await
+    // Warming the helper is best effort: it reports its own readiness through
+    // the status call, and a failed install must not block an operation that
+    // could still go through the one-shot authorization path.
+    let _ = warm_helper(state).await;
+    repair_log_access(state).await;
+    Ok(())
+}
+
+/// An install from before the mode fix, or a core that recreated its log as
+/// root, leaves the log unreadable for the GUI. Nothing else can repair that
+/// from the invoking user, so do it silently through the helper — but only
+/// when reading actually fails, so a healthy install never prompts.
+async fn repair_log_access(state: &AppState) {
+    let unreadable = run_blocking(|| {
+        Ok(match fs::File::open(log_path()) {
+            Ok(_) => false,
+            Err(err) => err.kind() == std::io::ErrorKind::PermissionDenied,
+        })
+    })
+    .await
+    .unwrap_or(false);
+
+    if !unreadable {
+        return;
+    }
+
+    let script = log_permission_script();
+    match run_privileged(state, &script).await {
+        Ok(()) => {
+            set_admin(state, true, String::new());
+        }
+        // A cancelled or unavailable authorization is not a startup failure:
+        // the status call reports helper readiness on its own, and the refresh
+        // button explains what is still wrong.
+        Err(err) => eprintln!("log permission repair skipped: {err}"),
+    }
 }
 
 pub async fn refresh_admin(state: &AppState) {

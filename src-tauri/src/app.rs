@@ -356,14 +356,32 @@ pub async fn install_app_update(app: AppHandle, state: State<'_, AppState>) -> R
 }
 
 #[tauri::command]
-pub async fn read_logs(limit: i64) -> Result<String> {
+pub async fn read_logs(state: State<'_, AppState>, limit: i64) -> Result<String> {
     let limit = if limit <= 0 || limit > 1000 {
         200usize
     } else {
         limit as usize
     };
-    run_blocking(move || platform::read_logs(limit)).await
+
+    match run_blocking(move || platform::read_logs(limit)).await {
+        Ok(text) => Ok(text),
+        // The refresh button is the first place a root-owned log shows up, so
+        // name the cause and repair it instead of handing the user EACCES.
+        Err(err) if err.is_permission_denied() => {
+            platform::prepare(state.inner()).await?;
+            run_blocking(move || platform::read_logs(limit))
+                .await
+                .map_err(|_| Error::msg(LOG_PERMISSION_HINT))
+        }
+        Err(err) => Err(err),
+    }
 }
+
+#[cfg(target_os = "macos")]
+const LOG_PERMISSION_HINT: &str =
+    "无法读取日志：日志文件权限不正确。请在系统弹窗中允许授权，或点击「安装」修复后重试。";
+#[cfg(windows)]
+const LOG_PERMISSION_HINT: &str = "无法读取日志：服务正在占用该日志文件，请稍后重试。";
 
 #[tauri::command]
 pub async fn clear_logs(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {

@@ -24,6 +24,15 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+impl Error {
+    /// True when the underlying failure was an OS permission denial. The
+    /// message is flattened into a string, so the io kind has to be matched
+    /// from the text rather than the error type.
+    pub fn is_permission_denied(&self) -> bool {
+        self.0.contains("os error 13") || self.0.to_lowercase().contains("permission denied")
+    }
+}
+
 impl serde::Serialize for Error {
     fn serialize<S: serde::Serializer>(
         &self,

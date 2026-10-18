@@ -274,20 +274,18 @@ pub fn helper_plist_content(exe: &str, uid: &str) -> String {
 #[cfg(target_os = "macos")]
 const INSTALL_SCRIPT: &str = r#"set -eu
 mkdir -p __BIN_DIR__ __CONFIG_DIR__ __STATE_DIR__ __LOG_ROOT__
-# The GUI runs as the invoking user and tails these files directly, so both the
-# directory (needs +x to traverse) and the log have to be readable. An older
-# install may have left the directory at 0744, and `mkdir -p` will not correct
-# an existing mode.
-chmod 755 __LOG_ROOT__
+# The GUI runs as the invoking user and tails the service log directly, so both
+# the directory (needs +x to traverse) and the log have to be readable. An older
+# install, or a core that recreated the log as root, may have left either
+# unreadable, and `mkdir -p` will not correct an existing mode.
+__LOG_PERMISSIONS__
 install -m 755 __STAGE_CORE__ __CORE__
 install -m 755 __STAGE_CLI__ __CLI__
 install -m 755 __STAGE_WEB__ __WEB__
 install -m 755 __STAGE_WEB_EMBED__ __WEB_EMBED__
 install -m 755 __STAGE_SERVICE__ __SERVICE_SCRIPT__
 if [ ! -f __DEFAULT_CONF__ ]; then install -m 644 __STAGE_DEFAULT_CONF__ __DEFAULT_CONF__; fi
-if [ ! -f __SERVICE_ENV__ ]; then install -m 644 __STAGE_SERVICE_ENV__ __SERVICE_ENV__; fi
-touch __LOG__
-chmod 644 __LOG__"#;
+if [ ! -f __SERVICE_ENV__ ]; then install -m 644 __STAGE_SERVICE_ENV__ __SERVICE_ENV__; fi"#;
 
 #[cfg(target_os = "macos")]
 pub fn install_script(stage: &Path) -> String {
@@ -296,6 +294,7 @@ pub fn install_script(stage: &Path) -> String {
         .replace("__BIN_DIR__", &shell_quote_path(&bin))
         .replace("__CONFIG_DIR__", &shell_quote_path(&config_dir()))
         .replace("__STATE_DIR__", &shell_quote_path(&state_dir()))
+        .replace("__LOG_PERMISSIONS__", &log_permission_script())
         .replace("__LOG_ROOT__", &shell_quote(LOG_ROOT))
         .replace("__CORE__", &shell_quote_path(&core_path()))
         .replace("__CLI__", &shell_quote_path(&bin.join("easytier-cli")))
@@ -342,6 +341,31 @@ pub fn install_script(stage: &Path) -> String {
 }
 
 #[cfg(target_os = "macos")]
+const LOG_PERMISSION_SCRIPT: &str = r#"mkdir -p __LOG_ROOT__
+chmod 755 __LOG_ROOT__
+# The core runs as root under launchd and appends with `>>`, which leaves the
+# log owned by root. Make it group/world readable so the GUI can tail it.
+if [ -f __LOG__ ]; then
+  chmod 644 __LOG__
+else
+  touch __LOG__
+  chmod 644 __LOG__
+fi"#;
+
+/// Shell fragment that makes the service log readable by the invoking user.
+///
+/// Kept as one fragment so the install script, the updater and the startup
+/// repair cannot drift apart. The last step verifies the result, so a failed
+/// repair surfaces as an error instead of a silent "no permission" later.
+#[cfg(target_os = "macos")]
+pub fn log_permission_script() -> String {
+    let repair = LOG_PERMISSION_SCRIPT
+        .replace("__LOG_ROOT__", &shell_quote(LOG_ROOT))
+        .replace("__LOG__", &shell_quote_path(&log_path()));
+    format!("{repair}\ntest -r {}", shell_quote_path(&log_path()))
+}
+
+#[cfg(target_os = "macos")]
 const UPDATE_SCRIPT: &str = r#"set -eu
 backup=""
 if [ -d __BIN_DIR__ ]; then backup=__INSTALL_ROOT__/bin.backup.$(date +%s); cp -pR __BIN_DIR__ "$backup"; fi
@@ -352,6 +376,7 @@ install -m 755 __STAGE_CORE__ __CORE__
 install -m 755 __STAGE_CLI__ __CLI__
 install -m 755 __STAGE_WEB__ __WEB__
 install -m 755 __STAGE_WEB_EMBED__ __WEB_EMBED__
+__LOG_PERMISSIONS__
 trap - EXIT"#;
 
 #[cfg(target_os = "macos")]
@@ -360,6 +385,7 @@ pub fn update_script(stage: &Path) -> String {
     UPDATE_SCRIPT
         .replace("__BIN_DIR__", &shell_quote_path(&bin))
         .replace("__INSTALL_ROOT__", &shell_quote(INSTALL_ROOT))
+        .replace("__LOG_PERMISSIONS__", &log_permission_script())
         .replace("__CORE__", &shell_quote_path(&core_path()))
         .replace("__CLI__", &shell_quote_path(&bin.join("easytier-cli")))
         .replace("__WEB__", &shell_quote_path(&bin.join("easytier-web")))
@@ -411,5 +437,23 @@ mod tests {
         let stage = Path::new("/tmp/easytier stage");
         assert!(!install_script(stage).contains("launchctl"));
         assert!(!update_script(stage).contains("launchctl"));
+    }
+
+    /// The log lives under a root-owned tree, so every script that can run
+    /// privileged has to leave it readable for the GUI. This is what the
+    /// refresh button depends on.
+    #[test]
+    fn privileged_scripts_repair_log_permissions() {
+        let stage = Path::new("/tmp/easytier stage");
+        for script in [log_permission_script(), install_script(stage), update_script(stage)] {
+            assert!(script.contains("chmod 755"), "{script}");
+            assert!(script.contains("chmod 644"), "{script}");
+            assert!(script.contains("easytier.log"), "{script}");
+            assert!(!script.contains("__LOG_PERMISSIONS__"), "{script}");
+        }
+
+        // The fragment verifies its own result, so a failed repair fails the
+        // privileged operation instead of surfacing as "no permission" later.
+        assert!(log_permission_script().contains("test -r"));
     }
 }
