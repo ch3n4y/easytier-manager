@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Icon } from '../icons';
 import type { Status, UpdateInfo } from '../api';
 
@@ -40,6 +41,34 @@ export function Overview({
   const ringIcon = working ? 'loader' : status.running ? 'check' : status.installed ? 'pause' : 'download';
 
   const sub = status.installed ? (status.version ? `v${status.version}` : '已安装') : '尚未安装';
+  // The log pane follows the tail, but only while the reader is already at the
+  // bottom: pulling the view back while someone is scrolling through history
+  // would fight them every poll. `stuck` records that intent, and a fresh
+  // log payload (a manual refresh replaces the whole string) resets it so the
+  // result of an explicit action is always visible.
+  const logRef = useRef<HTMLPreElement>(null);
+  const stuck = useRef(true);
+
+  useEffect(() => {
+    const pane = logRef.current;
+    if (pane && stuck.current) pane.scrollTop = pane.scrollHeight;
+  }, [logs]);
+
+  function trackLogScroll() {
+    const pane = logRef.current;
+    if (!pane) return;
+    // A few pixels of slack: fractional line heights otherwise leave the pane
+    // permanently "not quite at the bottom" and the follow never re-arms.
+    stuck.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 24;
+  }
+
+  function revealLatest() {
+    const pane = logRef.current;
+    if (!pane) return;
+    stuck.current = true;
+    pane.scrollTop = pane.scrollHeight;
+  }
+
 
   async function copyLogs() {
     if (!logs) return;
@@ -122,7 +151,16 @@ export function Overview({
             <h3>运行日志</h3>
           </div>
           <div className="stage-actions">
-            <button className="btn ghost sm" disabled={working} onClick={onRefreshLogs}>
+            <button
+              className="btn ghost sm"
+              disabled={working}
+              onClick={() => {
+                // An explicit refresh is a request for the newest lines, so it
+                // re-arms the follow even if the reader had scrolled up.
+                revealLatest();
+                onRefreshLogs();
+              }}
+            >
               <Icon name="refresh" />
               刷新
             </button>
@@ -140,7 +178,13 @@ export function Overview({
             </button>
           </div>
         </div>
-        <pre className={logs ? 'logs' : 'logs logs-empty'}>{logs || '暂无日志。'}</pre>
+        <pre
+          ref={logRef}
+          className={logs ? 'logs' : 'logs logs-empty'}
+          onScroll={trackLogScroll}
+        >
+          {logs || '暂无日志。'}
+        </pre>
       </section>
     </div>
   );
