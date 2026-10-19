@@ -92,25 +92,40 @@ pnpm tauri android build          # 出 APK/AAB（arm64 主力）
 | 多地址 | 插件 `start_vpn` 只接受单个地址，因此传第一个地址；全部地址仍以路由形式覆盖 |
 | 返回键 | 需按上文改 `MainActivity`，否则会退出应用而不是返回上一屏 |
 
-## 状态：能编译的是哪部分，哪些没验证
+## 状态：已通过编译器，尚未上机
 
-必须说清楚：**这次改动里，Android 目标一次都没有被编译过**，因为本机没有可用的安卓工具链。
+**2026-10-19 更新：Android 目标已成功编译**（`cargo check --target aarch64-linux-android`
+退出码 0）。此前"从未被编译器验证"的判断不再成立，但那一轮验证确实抓出了 5 类真实缺陷，
+说明当时的担心是对的 —— 见下面的"首次编译修掉的问题"。
 
-已在 Windows 桌面目标上真实跑过：
+已在真机/模拟器之外验证：
 
-- `cargo check` 通过；`cargo test` 21/21 通过；
-- `pnpm build`（tsc + vite）通过；
-- 所用到的 `easytier` API 已逐个比对 v2.7.0 源码确认存在（含签名）；
-- 前端手机布局用无头 Chrome 在 390×844 / 844×390 跑过；桌面 980×660 删除新增规则后计算样式差异为 0。
+- `cargo check --target aarch64-linux-android` 通过（0 error）；
+- 桌面目标 `tauri build --no-bundle` 通过，无警告；
+- `cargo test --lib` 30/30 通过（重构后测试在 lib target，不再是 bin）；
+- `pnpm build`（tsc + vite）通过。
 
-## 未验证（阻断级，必须先解决）
+## 首次编译修掉的问题
 
-1. **Android 目标未编译**：`pnpm tauri android init` 直接被拒（本机无 Android SDK/NDK），且 `JAVA_HOME` 指向 JDK 8（需 17+）。因此 `cfg(target_os = "android")` 的全部代码**只经过人工核对，没经过编译器**。
-2. 具体涉及：`src-tauri/src/mobile_core.rs` 全文、`src-tauri/src/platform/android.rs` 全文、`src-tauri/src/app.rs` 的 Android 分支与 `TunPlan`、`src-tauri/src/lib.rs` 的 Android `setup` 段、`paths.rs` / `service.rs` / `window.rs` 的 Android 分支。
-   首次编译最可能出问题的地方按概率排序：`run_web_client` 的参数与返回、`MachineIdOptions` 的字段、`TomlConfig::new_from_str` 的错误类型、`attach_mobile_tun_fd` 的 `Option<&[Uuid]>`、`tracing-subscriber` 的 `fmt::layer().with_writer()` 泛型。
-3. **没在真机/模拟器上运行过**：VPN 授权弹窗、`vpn_service_start` 是否带回 fd、`attach_mobile_tun_fd` 是否成功、隧道是否真的通流量 —— 全未验证。
-4. 安全区（`env(safe-area-inset-*)`）、各家 ROM 的后台查杀策略、真实 IME 行为，均未在硬件上确认。
+这些是"人工核对通过、编译器判否"的实际缺陷，记录下来避免重犯：
 
+1. **`attach_mobile_tun_fd` / `get_mobile_tun_config` / `MobileTunConfig` 在 v2.7.0 里根本不存在。**
+   此前"已逐个比对源码确认存在"的结论是错的。真实 API 是
+   `NativeInstanceManager::attach_tun_fd(instance_id, fd)`（单实例）加上
+   `network_info(id)` 读回虚拟 IP 与路由，与官方 `easytier-gui` 的 `set_tun_fd` 一致。
+   `mobile_core.rs` 因此重写为自行组装 `TunPlan`。
+2. `window.rs` 的 `show_main_window` 桌面版缺 `#[cfg(desktop)]`，与安卓版重名（E0428/E0252）。
+3. `release.rs` 的 `latest_asset` / `asset_name_for_version` 未限 `desktop`，安卓上找不到
+   `platform_asset_tag`（E0425）。安卓内嵌核心、不下载二进制，这两个只应存在于桌面。
+4. `platform/android.rs::write_config_server` 把 `server` move 进闭包后又使用（E0382）。
+5. 工具链要求：`easytier v2.7.0` 要求 rustc ≥ 1.95，本机原为 1.92；且交叉编译需要
+   `protoc` 与 NDK sysroot 的 bindgen 参数（见文末环境变量）。
+
+## 仍未验证（阻断级，必须先解决）
+
+1. **没在真机/模拟器上运行过**：VPN 授权弹窗、`vpn_service_start` 是否带回 fd、
+   `attach_tun_fd` 是否成功、隧道是否真的通流量 —— 全未验证。编译通过不等于能跑通。
+2. 安全区（`env(safe-area-inset-*)`）、各家 ROM 的后台查杀策略、真实 IME 行为，均未在硬件上确认。
 ## 功能上明确没做的
 
 | # | 缺口 | 影响 | 怎么补 |
@@ -146,17 +161,36 @@ pnpm tauri android build          # 出 APK/AAB（arm64 主力）
 - Rust 目标：`rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` 已执行。
 - `pnpm tauri android init` 已成功，产物 `src-tauri/gen/android/` 已入库（含 Gradle wrapper）。
 
-交叉编译 C 依赖时 cc-rs 不会自动定位 NDK，必须显式指定（APK 的 minSdk 是 24，故用 `android24` 包装脚本）：
+交叉编译 C 依赖时 cc-rs 不会自动定位 NDK，必须显式指定（APK 的 minSdk 是 24，故用
+`android24` 包装脚本）。bindgen（`kcp-sys` 等）还需要 sysroot 的 include 路径，否则报
+`stdlib.h not found`。macOS 主机的可用配方：
 
 ```
-NDK=D:\asdk\ndk\27.2.12479018
-BIN=$NDK\toolchains\llvm\prebuilt\windows-x86_64\bin
-CC_aarch64-linux-android=$BIN\aarch64-linux-android24-clang.cmd
-CXX_aarch64-linux-android=$BIN\aarch64-linux-android24-clang++.cmd
-AR_aarch64-linux-android=$BIN\llvm-ar.exe
-CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$BIN\aarch64-linux-android24-clang.cmd
+NDK=~/Library/Android/sdk/ndk/27.2.12479018
+prebuilt=$NDK/toolchains/llvm/prebuilt/darwin-x86_64
+BIN=$prebuilt/bin
+SYS=$prebuilt/sysroot
+
+env \
+  CC_aarch64_linux_android=$BIN/aarch64-linux-android24-clang \
+  CXX_aarch64_linux_android=$BIN/aarch64-linux-android24-clang++ \
+  AR_aarch64_linux_android=$BIN/llvm-ar \
+  CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$BIN/aarch64-linux-android24-clang \
+  PROTOC=$(which protoc) \
+  "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android=--sysroot=$SYS -I$SYS/usr/include -I$SYS/usr/include/aarch64-linux-android" \
+  cargo check --target aarch64-linux-android
 ```
 
-**仍未完成**：`cargo check --target aarch64-linux-android` 的那次执行被中断，**没有结果**。也就是说安卓侧代码到现在仍未被编译器验证过——这是本分支最大的未知项。
+注意 `BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android` 含连字符，bash 的 `export` 不接受，
+必须用 `env` 传入。
+
+其他前置：
+
+- `rustup toolchain install 1.99.1` + `rustup override set 1.99.1`（`easytier v2.7.0` 要求
+  rustc ≥ 1.95），并 `rustup target add --toolchain 1.99.1 aarch64-linux-android`；
+- `brew install protobuf`（`prost-wkt-types` 构建脚本需要 `protoc`）。
+
+**已达成**：上述配方下 `cargo check --target aarch64-linux-android` 退出码 0，安卓侧代码
+现在经过了编译器验证。剩下的未知项只有真机运行（见上文"仍未验证"）。
 
 
