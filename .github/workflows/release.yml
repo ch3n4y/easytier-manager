@@ -135,7 +135,12 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # The action's default package list still asks for `tools`, which no
+      # longer exists in the SDK repository and makes it fail outright. The
+      # runner image already ships the SDK; only platform-tools needs checking.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -176,9 +181,11 @@ jobs:
           EOF
 
       - name: Build APK
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
-        run: pnpm tauri android build --apk --target aarch64
+        # Read ANDROID_HOME from the shell: the action exports it through
+        # GITHUB_ENV, which is not guaranteed to be visible to `env:` here.
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          pnpm tauri android build --apk --target aarch64
 
       - name: Verify the APK is signed
         run: |
