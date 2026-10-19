@@ -3,3 +3,6 @@ dist
 src-tauri/target
 src-tauri/gen/schemas
 .DS_Store
+# Machine-specific Android cross-compile paths (NDK/SDK/protoc). Regenerate per
+# machine; docs/android.md records the recipe.
+.cargo/config.toml

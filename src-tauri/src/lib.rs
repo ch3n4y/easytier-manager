@@ -72,6 +72,12 @@ pub fn run_service_action_from_args() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `reqwest` is built with `rustls-no-provider`, so the process has to pick a
+    // crypto provider before the first client is constructed — otherwise every
+    // HTTPS call panics. Android surfaced this on launch (the core fetches its
+    // config over TLS); desktop builds reach the same code, so install it here
+    // for both. Installing twice is an error by contract, hence the ignore.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default()
         .manage(AppState::default())
         .setup(setup);

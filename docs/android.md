@@ -121,11 +121,45 @@ pnpm tauri android build          # 出 APK/AAB（arm64 主力）
 5. 工具链要求：`easytier v2.7.0` 要求 rustc ≥ 1.95，本机原为 1.92；且交叉编译需要
    `protoc` 与 NDK sysroot 的 bindgen 参数（见文末环境变量）。
 
-## 仍未验证（阻断级，必须先解决）
+## 真机验证进展（2026-10-19，Xiaomi 2211133C / Android 16）
 
-1. **没在真机/模拟器上运行过**：VPN 授权弹窗、`vpn_service_start` 是否带回 fd、
-   `attach_tun_fd` 是否成功、隧道是否真的通流量 —— 全未验证。编译通过不等于能跑通。
+首次在真机上安装并启动。已确认：
+
+- APK 构建成功（`tauri android build --apk --target aarch64`，universal 55MB）；
+- 安装后启动，**`.so` 加载成功**（`nativeloader: ... libeasytier_manager_lib.so ... ok`）；
+- 顺带修掉一个只有真机才会暴露的崩溃，见下。
+
+### 真机首启崩溃及修复
+
+进程在启动后立即 `SIGABRT`：
+
+```
+No rustls crypto provider is configured. When using the `rustls-no-provider`
+feature you must install a crypto provider before building a Client.
+```
+
+`reqwest` 以 `rustls-no-provider` 编译，但没有任何地方安装 provider，所以首个 HTTPS
+客户端一构造就 panic。已在 `lib.rs::run()` 开头安装 `ring` provider（桌面与移动共用
+该入口），并在 `Cargo.toml` 显式依赖 `rustls`。**编译期完全看不出这个问题**，只有运行时
+才暴露 —— 这也印证了"能编译 ≠ 能跑"。
+
+### 仍未验证（阻断级）
+
+1. **VPN 授权弹窗与隧道是否真的通流量**：设备在安装新 APK 前断开，这部分还没跑到。
 2. 安全区（`env(safe-area-inset-*)`）、各家 ROM 的后台查杀策略、真实 IME 行为，均未在硬件上确认。
+
+## 构建备忘（真机实测踩到的坑）
+
+- `tauri android dev` 的 `beforeDevCommand` 需要 dev server 监听 `0.0.0.0`（已在
+  `vite.config.ts` 设置 `server.host`），否则 CLI 一直卡在等待 `http://<LAN-IP>:1420`。
+- `android-studio-script` 只能由 Android Studio / CLI 在线时调用；直接跑会因
+  `WebSocket ConnectionRefused` 失败。Gradle 的 `rustBuild*` 任务走的就是它。
+- **同一时间只能有一个 `tauri android dev`**。多个实例会卡在
+  `Blocking waiting for file lock on Android` 且不会自愈，必须按 PID 逐个 `kill -9`。
+- `tauri android build` 产出的是 **unsigned** APK，需自行 `zipalign` + `apksigner`。
+- 交叉编译环境走仓库根 `.cargo/config.toml`（已 gitignore）：cargo 只从**当前目录向上**
+  找 config，而 Gradle 在 `gen/android` 下调用，所以配置放在 `src-tauri/` 里不生效。
+
 ## 功能上明确没做的
 
 | # | 缺口 | 影响 | 怎么补 |

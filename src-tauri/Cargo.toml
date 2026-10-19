@@ -25,6 +25,9 @@ tauri-plugin-updater = "2.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# `reqwest` pulls rustls without a provider, so the app installs one itself at
+# startup (see `lib.rs`). `ring` matches the provider reqwest already enables.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 zip = "2"
 regex = "1"
 walkdir = "2"
