@@ -135,3 +135,28 @@ pnpm tauri android build          # 出 APK/AAB（arm64 主力）
 3. **签名未配置**：`gen/android/keystore.properties` + keystore 需要自行准备，且不应入库。
 4. **构建依赖网络**：三个 crate 是 git 依赖（`github.com`），构建机必须能访问，或配代理/VPN。crates.io 镜像与 `gh-proxy` 之类的下载镜像**不能**替代（git 协议不走它们）。
 
+## 本地工具链（本次已装好并通过 android init）
+
+- JDK 21：`scoop install temurin21-jdk`，`JAVA_HOME=D:\scoop\apps\temurin21-jdk\current`
+- Android SDK：`D:\asdk`，含 cmdline-tools latest、platform-tools 37.0.1、platforms/android-35、build-tools 35.0.0、NDK 27.2.12479018。
+  全部取自腾讯镜像 `https://mirrors.cloud.tencent.com/AndroidSDK/` —— `dl.google.com` 在本机直连与走代理都不通；`maven.google.com`（Gradle 拉 AGP）需走代理。
+  包里 `source.properties` 里记录的 `hostOs` 决定要下 windows 变体（`*-win.zip` / `*_windows.zip`），取第一个 archive 会拿到 linux 包。
+- SDK 许可：`sdkmanager --licenses` 需要访问 `dl.google.com`，改为手工写入 `D:\asdk\licenses\android-sdk-license`（内容为已知的 license 哈希）。
+- 解包必须在**短路径**下进行：在 `C:\Users\...\.pi-desktop\scratch\...` 这类长路径下 `tar` 会以 `Invalid argument` 静默丢文件（`clang.exe`、`aapt2.exe`、`adb.exe` 都会缺失）。
+- Rust 目标：`rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` 已执行。
+- `pnpm tauri android init` 已成功，产物 `src-tauri/gen/android/` 已入库（含 Gradle wrapper）。
+
+交叉编译 C 依赖时 cc-rs 不会自动定位 NDK，必须显式指定（APK 的 minSdk 是 24，故用 `android24` 包装脚本）：
+
+```
+NDK=D:\asdk\ndk\27.2.12479018
+BIN=$NDK\toolchains\llvm\prebuilt\windows-x86_64\bin
+CC_aarch64-linux-android=$BIN\aarch64-linux-android24-clang.cmd
+CXX_aarch64-linux-android=$BIN\aarch64-linux-android24-clang++.cmd
+AR_aarch64-linux-android=$BIN\llvm-ar.exe
+CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$BIN\aarch64-linux-android24-clang.cmd
+```
+
+**仍未完成**：`cargo check --target aarch64-linux-android` 的那次执行被中断，**没有结果**。也就是说安卓侧代码到现在仍未被编译器验证过——这是本分支最大的未知项。
+
+
