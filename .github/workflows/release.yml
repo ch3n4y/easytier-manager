@@ -228,9 +228,15 @@ jobs:
   publish:
     name: Publish release
     needs: [macos, windows, android]
-    # A push to `main` runs the same builds to warm the cache, but only a tag
-    # publishes.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Only a tag publishes. Android is allowed to fail: its bindgen step needs
+    # the NDK sysroot and currently breaks on its own (pnet_sys), and a missing
+    # APK is better than a release nobody receives. `!cancelled()` is what lets
+    # this job run at all when a dependency failed.
+    if: |
+      !cancelled()
+      && startsWith(github.ref, 'refs/tags/')
+      && needs.macos.result == 'success'
+      && needs.windows.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -240,8 +246,9 @@ jobs:
       RELEASE_NOTES: |
         macOS 通用安装包（Apple 芯片 + Intel，ad-hoc 签名）与 Windows x64 安装包（NSIS）。Windows 版本以管理员权限运行。
 
-        - 修复：服务日志权限不正确时，点「刷新」会报无权限。安装、更新与启动现在都会把日志目录和文件纠正为可读，失败时给出明确的中文提示而不是裸的系统错误。
-        - 日志面板会自动滚动到最新一行；向上翻看历史时不会被强行拉回，点「刷新」则直接跳到最新。
+        - 新增：设置里可以选装任意一个 EasyTier 版本 —— 列表从 GitHub Releases 读取，支持回退到旧版本；原来的「检查更新」也一并移入设置。
+        - 修复：日志目录缺失时服务会反复启动失败（launchd 每 10 秒重拉一次却从不写日志）。现在服务自己创建日志目录，启动时也会修复缺失的日志文件。
+        - 本版未附带 Android 安装包：EasyTier 核心的抓包依赖在 Android 交叉编译时无法生成绑定（pnet_sys / bindgen 找不到 NDK sysroot），修复后另行发布。
     steps:
       - uses: actions/download-artifact@v4
         with:
