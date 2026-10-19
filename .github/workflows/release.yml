@@ -187,10 +187,15 @@ jobs:
         # `.cargo/config.toml`, so CI has to pass it explicitly.
         run: |
           set -euo pipefail
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          # The runner image path is the fallback: the setup action exports the
+          # variable through GITHUB_ENV, which is not always visible here.
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          NDK="$SDK/ndk/27.2.12479018"
           PREBUILT="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
           SYSROOT="$PREBUILT/sysroot"
           BIN="$PREBUILT/bin"
+          echo "SDK=$SDK"
+          test -x "$BIN/aarch64-linux-android24-clang" || { echo "::error::NDK toolchain missing at $BIN"; exit 1; }
 
           export NDK_HOME="$NDK"
           export "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android=--sysroot=$SYSROOT -I$SYSROOT/usr/include -I$SYSROOT/usr/include/aarch64-linux-android"
@@ -204,9 +209,10 @@ jobs:
       - name: Verify the APK is signed
         run: |
           set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           apk=$(ls src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk | head -n1)
           case "$apk" in *unsigned*) echo "::error::APK is unsigned: $apk"; exit 1;; esac
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$apk"
+          "$SDK"/build-tools/*/apksigner verify --print-certs "$apk"
 
       # The app picks its update out of the release by this suffix, so the name
       # is part of the contract rather than cosmetic.
