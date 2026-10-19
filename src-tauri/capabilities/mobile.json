@@ -2,11 +2,14 @@
   "identifier": "mobile",
   "description": "Android: the shell drives the VpnService plugin directly, since the tunnel is a system service the app owns rather than a daemon it supervises.",
   "platforms": ["android"],
+  "windows": ["main"],
+  "local": true,
   "permissions": [
     "core:default",
     "vpnservice:allow-prepare-vpn",
     "vpnservice:allow-start-vpn",
     "vpnservice:allow-stop-vpn",
-    "vpnservice:allow-get-vpn-status"
+    "vpnservice:allow-get-vpn-status",
+    "vpnservice:allow-registerListener"
   ]
 }

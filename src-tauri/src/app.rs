@@ -519,6 +519,9 @@ pub struct TunPlan {
     pub ipv4_addr: Option<String>,
     pub routes: Vec<String>,
     pub dns: Option<String>,
+    /// The core's MTU. `VpnService.Builder.setMtu` throws on 0, so this is
+    /// always a usable value rather than an optional one.
+    pub mtu: u32,
     pub instance_ids: Vec<String>,
     pub rejected: Vec<String>,
 }
@@ -531,6 +534,7 @@ impl From<crate::mobile_core::TunPlan> for TunPlan {
             addresses: plan.addresses,
             routes: plan.routes,
             dns: plan.dns,
+            mtu: plan.mtu,
             instance_ids: plan
                 .instance_ids
                 .into_iter()

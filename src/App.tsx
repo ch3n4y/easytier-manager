@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
   CheckAppUpdate,
@@ -19,7 +20,7 @@ import {
   StopService,
   UpdateCore,
 } from './api';
-import type { AppUpdateInfo, DownloadProgress, Status, UpdateInfo } from './api';
+import type { AppUpdateInfo, DownloadProgress, Status, TunPlan, UpdateInfo } from './api';
 
 import {
   AndroidAttachTunFd,
@@ -57,6 +58,25 @@ type Busy =
 const LOG_LIMIT = 200;
 const POLL_MS = 5000;
 const MB = 1024 * 1024;
+
+/**
+ * With a config server the network list arrives asynchronously: the core comes
+ * up first and the instances follow a few seconds later, so the first plan read
+ * is empty on a cold start. Starting is an explicit user action, so wait a
+ * bounded moment for the address instead of failing and making them retry.
+ */
+const TUN_PLAN_TIMEOUT_MS = 12_000;
+const TUN_PLAN_POLL_MS = 400;
+
+async function waitForTunPlan(): Promise<TunPlan> {
+  const deadline = Date.now() + TUN_PLAN_TIMEOUT_MS;
+  let plan = await AndroidTunConfig();
+  while (!plan.ipv4Addr && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, TUN_PLAN_POLL_MS));
+    plan = await AndroidTunConfig();
+  }
+  return plan;
+}
 
 const BUSY_LABEL: Record<Exclude<Busy, ''>, string> = {
   install: '安装 EasyTier',
@@ -265,26 +285,40 @@ function Shell() {
    * the promise after a timeout, hence the timer failing it rather than leaving
    * the caller hanging.
    */
-  function waitForTunFd(timeoutMs = 20000): { fd: Promise<number>; cancel: () => void } {
+  async function waitForTunFd(
+    timeoutMs = 20000,
+  ): Promise<{ fd: Promise<number>; cancel: () => void }> {
     let unlisten: (() => void) | undefined;
     let timer = 0;
+    let resolveFd: (fd: number) => void = () => undefined;
+    let rejectFd: (err: Error) => void = () => undefined;
 
     const fd = new Promise<number>((resolve, reject) => {
-      timer = window.setTimeout(() => {
-        unlisten?.();
-        reject(new Error('等待 VPN 设备超时'));
-      }, timeoutMs);
-      void listen<{ fd: number }>('vpn_service_start', (event) => {
-        window.clearTimeout(timer);
-        unlisten?.();
-        resolve(event.payload.fd);
-      }).then(
-        (off) => {
-          unlisten = off;
-        },
-        () => undefined,
-      );
+      resolveFd = resolve;
+      rejectFd = reject;
     });
+
+    // The descriptor arrives on the *plugin's* channel, not the app event bus:
+    // the Kotlin side calls `PluginHandle.trigger`, so the global `listen` never
+    // saw it. `addPluginListener` is the matching subscription, and it is also
+    // what the `vpnservice:allow-registerListener` permission gates.
+    //
+    // Subscribing before returning matters too — `start_vpn` reports the fd
+    // within ~50ms, so a listener still registering when it fires is simply lost.
+    let listener: PluginListener | undefined;
+    listener = await addPluginListener<{ fd: number }>('vpnservice', 'vpn_service_start', (payload) => {
+      window.clearTimeout(timer);
+      void listener?.unregister();
+      resolveFd(payload.fd);
+    });
+    unlisten = () => {
+      void listener?.unregister();
+    };
+
+    timer = window.setTimeout(() => {
+      unlisten?.();
+      rejectFd(new Error('等待 VPN 设备超时'));
+    }, timeoutMs);
 
     return {
       fd,
@@ -303,9 +337,11 @@ function Shell() {
    */
   async function startTunnelAndroid(): Promise<Status> {
     const nextStatus = await StartService();
-    const plan = await AndroidTunConfig();
+    const plan = await waitForTunPlan();
     if (!plan.ipv4Addr) {
-      throw new Error('核心尚未分配到隧道地址，请稍后再试');
+      throw new Error(
+        '核心尚未分配到隧道地址：配置服务器没有下发网络，请确认控制台已为该设备分配网络',
+      );
     }
 
     const permission = await PrepareVpn();
@@ -315,12 +351,13 @@ function Shell() {
 
     // Registered before the service starts: the descriptor is pushed from
     // Kotlin, and an event nobody is listening for is simply lost.
-    const pending = waitForTunFd();
+    const pending = await waitForTunFd();
     try {
       const started = await StartVpn({
         ipv4Addr: plan.ipv4Addr,
         routes: plan.routes,
         dns: plan.dns ?? undefined,
+        mtu: plan.mtu,
       });
       if (started?.errorMsg) {
         throw new Error(

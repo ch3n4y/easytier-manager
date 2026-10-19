@@ -115,6 +115,8 @@ export type TunPlan = {
   routes: string[];
   dns: string | null;
   instanceIds: string[];
+  /** The core's MTU; always set, because `setMtu(0)` throws on Android. */
+  mtu: number;
   /** Members whose claims conflicted and were left out of the plan. */
   rejected: string[];
 };
@@ -137,7 +139,11 @@ export type VpnReply = { granted?: boolean; errorMsg?: string } | null;
 
 export const PrepareVpn = () => invoke<VpnReply>('plugin:vpnservice|prepare_vpn', {});
 
-export const StartVpn = (request: { ipv4Addr: string; routes: string[]; dns?: string }) =>
-  invoke<VpnReply>('plugin:vpnservice|start_vpn', request);
+export const StartVpn = (request: {
+  ipv4Addr: string;
+  routes: string[];
+  dns?: string;
+  mtu: number;
+}) => invoke<VpnReply>('plugin:vpnservice|start_vpn', request);
 
 export const StopVpn = () => invoke<VpnReply>('plugin:vpnservice|stop_vpn', {});

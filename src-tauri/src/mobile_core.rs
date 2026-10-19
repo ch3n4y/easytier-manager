@@ -25,7 +25,9 @@ use anyhow::{anyhow, Context as _, Result};
 use easytier::common::MachineIdOptions;
 use easytier::instance::factory::{native_instance_manager, NativeInstanceManager};
 use easytier::web_client::{self, WebClient};
-use easytier_core::config::toml::TomlConfig;
+// `ConfigLoader` is the trait that exposes `get_flags`; the inherent impl does
+// not carry it.
+use easytier_core::config::toml::{ConfigLoader, TomlConfig};
 use easytier_core::instance::manager::ConfigFileControl;
 use std::sync::Arc;
 
@@ -123,12 +125,20 @@ pub struct TunPlan {
     pub addresses: Vec<String>,
     pub routes: Vec<String>,
     pub dns: Option<String>,
+    /// The core's configured MTU. `VpnService.Builder.setMtu` rejects 0, and the
+    /// plugin's `getInt` fallback never fires for a missing key, so this has to
+    /// be a real value or starting the tunnel throws `Bad mtu`.
+    pub mtu: u32,
     pub instance_ids: Vec<uuid::Uuid>,
     /// Instances that were skipped because they have no address yet. They are
     /// reported rather than silently dropped: an empty tunnel is otherwise
     /// indistinguishable from one that never started.
     pub rejected: Vec<String>,
 }
+
+/// What Android accepts when the core has no opinion: the same value the
+/// plugin assumes and a safe default for a TUN device.
+const DEFAULT_MTU: u32 = 1500;
 
 /// Read the TUN plan from whichever instances are running.
 pub async fn tun_config() -> TunPlan {
@@ -160,6 +170,19 @@ pub async fn tun_config() -> TunPlan {
 
         plan.addresses.push(virtual_ip);
         plan.instance_ids.push(id);
+        // First instance with a usable MTU wins; they share one TUN.
+        if plan.mtu == 0 {
+            let configured = core
+                .manager
+                .config(id)
+                .map(|config| config.get_flags().mtu)
+                .unwrap_or(0);
+            plan.mtu = if configured == 0 {
+                DEFAULT_MTU
+            } else {
+                configured
+            };
+        }
         for route in &info.routes {
             for cidr in &route.proxy_cidrs {
                 if !plan.routes.contains(cidr) {
