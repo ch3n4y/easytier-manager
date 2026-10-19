@@ -164,18 +164,16 @@ pub async fn prepare(state: &AppState) -> Result<()> {
 }
 
 /// An install from before the mode fix, or a core that recreated its log as
-/// root, leaves the log unreadable for the GUI. Nothing else can repair that
-/// from the invoking user, so do it silently through the helper — but only
-/// when reading actually fails, so a healthy install never prompts.
+/// root, leaves the log unreadable for the GUI. A missing log (or directory) is
+/// worse: the service wrapper aborts at its own `exec >>` redirect and launchd
+/// then respawns it every ten seconds without ever writing a line. Nothing else
+/// can repair either case from the invoking user, so do it silently through the
+/// helper — but only when the open actually fails, so a healthy install never
+/// prompts.
 async fn repair_log_access(state: &AppState) {
-    let unreadable = run_blocking(|| {
-        Ok(match fs::File::open(log_path()) {
-            Ok(_) => false,
-            Err(err) => err.kind() == std::io::ErrorKind::PermissionDenied,
-        })
-    })
-    .await
-    .unwrap_or(false);
+    let unreadable = run_blocking(|| Ok(fs::File::open(log_path()).is_err()))
+        .await
+        .unwrap_or(false);
 
     if !unreadable {
         return;

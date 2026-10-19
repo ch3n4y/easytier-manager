@@ -1,6 +1,6 @@
 [package]
 name = "easytier-manager"
-version = "0.4.3"
+version = "0.4.4"
 description = "EasyTier Manager"
 authors = ["EasyTier Manager Contributors"]
 edition = "2021"

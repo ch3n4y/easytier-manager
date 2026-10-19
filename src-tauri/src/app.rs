@@ -23,7 +23,8 @@ use tempfile::TempDir;
 
 #[cfg(desktop)]
 use crate::release::{
-    download_and_extract, latest_asset, normalize_version, stage_binaries, stage_install_files,
+    download_and_extract, latest_asset, list_releases, normalize_version, release_by_tag,
+    stage_binaries, stage_install_files, CoreRelease,
 };
 use crate::release::UpdateInfo;
 
@@ -328,6 +329,68 @@ pub async fn check_core_update() -> Result<UpdateInfo> {
             })
         })
         .await
+    }
+}
+
+/// Every core version the release channel publishes for this platform, newest
+/// first, so the UI can offer a picker instead of always taking the latest.
+#[tauri::command]
+pub async fn list_core_releases() -> Result<Vec<CoreRelease>> {
+    #[cfg(desktop)]
+    {
+        list_releases().await
+    }
+    // The core is linked into the APK, so there is nothing to choose from.
+    #[cfg(target_os = "android")]
+    {
+        Ok(Vec::new())
+    }
+}
+
+/// Install one specific core version — `v2.7.0` or a bare `2.7.0`.
+#[tauri::command]
+pub async fn install_core_version(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    version: String,
+) -> Result<Status> {
+    #[cfg(desktop)]
+    {
+        let trimmed = version.trim();
+        if trimmed.is_empty() {
+            return Err(Error::msg("version is required"));
+        }
+        let tag = if trimmed.starts_with('v') {
+            trimmed.to_string()
+        } else {
+            format!("v{trimmed}")
+        };
+
+        platform::prepare(state.inner()).await?;
+
+        // Resolve the tag first: an unknown or asset-less release must fail
+        // before anything is downloaded or the service is touched.
+        let (release, asset) = release_by_tag(&tag).await?;
+
+        let stage = TempDir::new()?;
+        download_and_extract(
+            &asset.browser_download_url,
+            stage.path(),
+            progress_reporter(&app),
+        )
+        .await?;
+
+        let stage_path = stage.path().to_path_buf();
+        let tag = release.tag_name.clone();
+        run_blocking(move || stage_install_files(&stage_path, &tag)).await?;
+
+        platform::install_privileged(state.inner(), stage.path()).await?;
+        apply_and_report(&app, state.inner(), ServiceAction::Install, SERVICE_SETTLE_MS).await
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (&app, &state, &version);
+        Err(Error::msg("核心随安装包发布，无法单独选择版本"))
     }
 }
 

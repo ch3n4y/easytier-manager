@@ -1,19 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { Icon } from '../icons';
-import type { Status, UpdateInfo } from '../api';
+import type { Status } from '../api';
 
 export interface OverviewProps {
   status: Status;
   configServer: string;
-  updateInfo: UpdateInfo | null;
   busy: string;
   logs: string;
   onInstall: () => void;
   onStart: () => void;
   onStop: () => void;
   onRestart: () => void;
-  onCheckUpdate: () => void;
-  onUpdateCore: () => void;
   onOpenSettings: () => void;
   onRefreshLogs: () => void;
   onOpenClearLogs: () => void;
@@ -22,15 +19,12 @@ export interface OverviewProps {
 export function Overview({
   status,
   configServer,
-  updateInfo,
   busy,
   logs,
   onInstall,
   onStart,
   onStop,
   onRestart,
-  onCheckUpdate,
-  onUpdateCore,
   onOpenSettings,
   onRefreshLogs,
   onOpenClearLogs,
@@ -120,18 +114,6 @@ export function Overview({
               重启
             </button>
           )}
-          {status.installed &&
-            (updateInfo?.hasUpdate ? (
-              <button className="btn ghost" disabled={working} onClick={onUpdateCore}>
-                <Icon name="download" />
-                更新至 v{updateInfo.latestVersion}
-              </button>
-            ) : (
-              <button className="btn ghost" disabled={working} onClick={onCheckUpdate}>
-                <Icon name="arrowUp" />
-                检查更新
-              </button>
-            ))}
           {!configServer && (
             <button
               className="btn ghost"

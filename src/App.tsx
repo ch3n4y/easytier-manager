@@ -9,7 +9,9 @@ import {
   GetSettings,
   GetStatus,
   InstallAppUpdate,
+  InstallCoreVersion,
   InstallLatest,
+  ListCoreReleases,
   ReadConfig,
   ReadLogs,
   RestartService,
@@ -18,9 +20,15 @@ import {
   ShowMainWindow,
   StartService,
   StopService,
-  UpdateCore,
 } from './api';
-import type { AppUpdateInfo, DownloadProgress, Status, TunPlan, UpdateInfo } from './api';
+import type {
+  AppUpdateInfo,
+  CoreRelease,
+  DownloadProgress,
+  Status,
+  TunPlan,
+  UpdateInfo,
+} from './api';
 
 import {
   AndroidAttachTunFd,
@@ -48,12 +56,13 @@ type Busy =
   | 'restart'
   | 'save'
   | 'check'
-  | 'update'
   | 'appCheck'
   | 'appUpdate'
   | 'logs'
   | 'clear'
-  | 'proxy';
+  | 'proxy'
+  | 'releases'
+  | 'coreVersion';
 
 const LOG_LIMIT = 200;
 const POLL_MS = 5000;
@@ -85,23 +94,23 @@ const BUSY_LABEL: Record<Exclude<Busy, ''>, string> = {
   restart: '重启服务',
   save: '保存配置',
   check: '检查更新',
-  update: '更新核心',
   appCheck: '检查管理器更新',
   appUpdate: '更新管理器',
   logs: '加载日志',
   clear: '清空日志',
   proxy: '保存加速地址',
+  releases: '读取版本列表',
+  coreVersion: '安装所选版本',
 };
 
 /** Actions whose only result is "the service status changed". */
-type StatusAction = 'start' | 'stop' | 'restart' | 'update';
+type StatusAction = 'start' | 'stop' | 'restart';
 
 /** Busy key, command and confirmation copy for those actions, in one place. */
 const STATUS_ACTIONS: Record<StatusAction, { call: () => Promise<Status>; done: string }> = {
   start: { call: StartService, done: '服务已启动' },
   stop: { call: StopService, done: '服务已停止' },
   restart: { call: RestartService, done: '服务已重启' },
-  update: { call: UpdateCore, done: 'EasyTier 核心已更新' },
 };
 
 /**
@@ -139,6 +148,10 @@ function Shell() {
   const [clearOpen, setClearOpen] = useState(false);
   const [githubProxy, setGithubProxy] = useState('');
   const [draftGithubProxy, setDraftGithubProxy] = useState('');
+  // Core versions the release channel offers, and the one the user picked.
+  // Loaded on demand: the listing is a network call the user may not need.
+  const [releases, setReleases] = useState<CoreRelease[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState('');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   // False until the first status lands. The shell reads every field it renders,
   // so painting it before that would flash empty defaults and then correct them.
@@ -404,7 +417,6 @@ function Shell() {
   const startService = () => statusAction('start');
   const stopService = () => statusAction('stop');
   const restartService = () => statusAction('restart');
-  const updateCore = () => statusAction('update');
 
   async function saveConfig() {
     const server = draftConfigServer.trim();
@@ -440,6 +452,36 @@ function Shell() {
     });
   }
 
+  /** Read the version list from the release channel. */
+  async function loadReleases() {
+    await run('releases', ListCoreReleases, (list) => {
+      setReleases(list);
+      // Keep an existing choice when it is still offered; otherwise preselect
+      // the newest, which is what "update" would install anyway.
+      setSelectedVersion((current) =>
+        current && list.some((release) => release.version === current)
+          ? current
+          : list[0]?.version ?? '',
+      );
+      setMessage(list.length ? `读到 ${list.length} 个可安装版本` : '没有可安装的版本');
+    });
+  }
+
+  /** Install exactly the version the user picked, not whatever is latest. */
+  async function installSelectedVersion() {
+    if (!selectedVersion) return;
+    await run(
+      'coreVersion',
+      () => InstallCoreVersion(selectedVersion),
+      (nextStatus) => {
+        setStatus(nextStatus);
+        // The banner is about "latest"; a deliberate pin makes it stale.
+        setUpdateInfo(null);
+        setMessage(`已安装 EasyTier v${selectedVersion}`);
+      },
+    );
+  }
+
   async function checkAppUpdate() {
     await run('appCheck', CheckAppUpdate, (info) => {
       setAppUpdate(info);
@@ -470,7 +512,8 @@ function Shell() {
     setClearOpen(false);
   }
 
-  const downloading = busy === 'install' || busy === 'update' || busy === 'appUpdate';
+  const downloading =
+    busy === 'install' || busy === 'appUpdate' || busy === 'coreVersion';
   const busyText = busy
     ? downloading && progress
       ? progressText(progress)
@@ -509,15 +552,12 @@ function Shell() {
             <Overview
               status={status}
               configServer={configServer}
-              updateInfo={updateInfo}
               busy={busy}
               logs={logs}
               onInstall={() => void installLatest()}
               onStart={() => void startService()}
               onStop={() => void stopService()}
               onRestart={() => void restartService()}
-              onCheckUpdate={() => void checkUpdate()}
-              onUpdateCore={() => void updateCore()}
               onOpenSettings={() => setView('settings')}
               onRefreshLogs={() => void refreshLogs()}
               onOpenClearLogs={() => setClearOpen(true)}
@@ -531,6 +571,9 @@ function Shell() {
               githubProxy={githubProxy}
               draftGithubProxy={draftGithubProxy}
               appUpdate={appUpdate}
+              updateInfo={updateInfo}
+              releases={releases}
+              selectedVersion={selectedVersion}
               busy={busy}
               onDraftChange={(value) => {
                 draftTouched.current = true;
@@ -546,6 +589,10 @@ function Shell() {
               onResetGithubProxy={() => setDraftGithubProxy(DEFAULT_GITHUB_PROXY)}
               onCheckAppUpdate={() => void checkAppUpdate()}
               onInstallAppUpdate={() => void installAppUpdate()}
+              onLoadReleases={() => void loadReleases()}
+              onSelectVersion={setSelectedVersion}
+              onInstallVersion={() => void installSelectedVersion()}
+              onCheckUpdate={() => void checkUpdate()}
             />
           )}
         </div>

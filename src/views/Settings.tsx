@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '../icons';
 import { useTheme, type ThemeMode } from '../theme';
-import type { AppUpdateInfo, Status } from '../api';
+import type { AppUpdateInfo, CoreRelease, Status, UpdateInfo } from '../api';
 import { DEFAULT_GITHUB_PROXY } from '../defaults';
 
 export interface SettingsProps {
@@ -10,6 +10,12 @@ export interface SettingsProps {
   githubProxy: string;
   draftGithubProxy: string;
   appUpdate: AppUpdateInfo | null;
+  /** Result of the last core update check; null until one runs. */
+  updateInfo: UpdateInfo | null;
+  /** Core versions the release channel offers for this platform. */
+  releases: CoreRelease[];
+  /** Version the user picked, or the newest one before they pick. */
+  selectedVersion: string;
   busy: string;
   onDraftChange: (value: string) => void;
   onSave: () => void;
@@ -18,6 +24,10 @@ export interface SettingsProps {
   onSaveGithubProxy: () => void;
   onResetGithubProxy: () => void;
   onCheckAppUpdate: () => void;
+  onLoadReleases: () => void;
+  onSelectVersion: (version: string) => void;
+  onCheckUpdate: () => void;
+  onInstallVersion: () => void;
   onInstallAppUpdate: () => void;
 }
 
@@ -34,6 +44,9 @@ export function Settings({
   githubProxy,
   draftGithubProxy,
   appUpdate,
+  updateInfo,
+  releases,
+  selectedVersion,
   busy,
   onDraftChange,
   onSave,
@@ -43,6 +56,10 @@ export function Settings({
   onResetGithubProxy,
   onCheckAppUpdate,
   onInstallAppUpdate,
+  onLoadReleases,
+  onSelectVersion,
+  onCheckUpdate,
+  onInstallVersion,
 }: SettingsProps) {
   const { mode, setMode } = useTheme();
   const working = busy !== '';
@@ -154,6 +171,64 @@ export function Settings({
             >
               <Icon name="check" />
               保存
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div className="grow">
+            <h3>EasyTier 核心版本</h3>
+          </div>
+        </div>
+        <div className="panel-body stack">
+          <p className="hint">
+            从 GitHub Releases 读取列表，可安装任意一个版本，不必跟随最新版。当前已安装
+            {status.version ? ` v${status.version}` : '（未安装）'}。
+          </p>
+          {updateInfo && (
+            <p className="hint">
+              最新版本 v{updateInfo.latestVersion}
+              {updateInfo.hasUpdate ? '，可以升级' : '，当前已是最新'}
+            </p>
+          )}
+          {releases.length > 0 && (
+            <label className="field">
+              <select
+                aria-label="EasyTier 核心版本"
+                value={selectedVersion}
+                disabled={working}
+                onChange={(event) => onSelectVersion(event.target.value)}
+              >
+                {releases.map((release) => (
+                  <option key={release.tag} value={release.version}>
+                    {`v${release.version}${release.prerelease ? '（预发布）' : ''}${
+                      release.publishedAt ? ` · ${release.publishedAt.slice(0, 10)}` : ''
+                    }`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="actions">
+            <button className="btn ghost" disabled={working} onClick={onCheckUpdate}>
+              <Icon name="arrowUp" />
+              检查更新
+            </button>
+            <button className="btn ghost" disabled={working} onClick={onLoadReleases}>
+              <Icon name="refresh" />
+              读取版本列表
+            </button>
+            <button
+              className="btn primary push"
+              disabled={working || !selectedVersion || selectedVersion === status.version}
+              onClick={onInstallVersion}
+            >
+              <Icon name="download" />
+              {selectedVersion && selectedVersion !== status.version
+                ? `安装 v${selectedVersion}`
+                : '安装所选版本'}
             </button>
           </div>
         </div>

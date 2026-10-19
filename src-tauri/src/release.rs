@@ -582,8 +582,9 @@ mod tests {
         assert!(core_release_from(&release("v9.9.9", &[&asset], true, false)).is_none());
 
         // Pre-releases stay listed, marked, so the UI can warn instead of hide.
-        let nightly =
-            core_release_from(&release("nightly", &[&asset], false, true)).expect("pre-release is listed");
+        let nightly_asset = asset_name_for_version("nightly");
+        let nightly = core_release_from(&release("nightly", &[&nightly_asset], false, true))
+            .expect("pre-release is listed");
         assert!(nightly.prerelease);
         assert_eq!(nightly.version, "nightly");
     }

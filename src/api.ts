@@ -30,6 +30,19 @@ export type UpdateInfo = {
   assetName: string;
 };
 
+/**
+ * One EasyTier core version offered by the release channel. `tag` is what gets
+ * installed; `assetName` is the zip for this OS/arch, and a release without one
+ * never reaches this list.
+ */
+export type CoreRelease = {
+  tag: string;
+  version: string;
+  publishedAt: string;
+  prerelease: boolean;
+  assetName: string;
+};
+
 /** The manager's own release channel, which is separate from the core's. */
 export type AppUpdateInfo = {
   currentVersion: string;
@@ -82,6 +95,13 @@ export const SaveConfig = (payload: ConfigPayload) =>
 export const CheckCoreUpdate = () => invoke<UpdateInfo>('check_core_update');
 
 export const UpdateCore = () => invoke<Status>('update_core');
+
+/** Every core version the release channel publishes for this platform. */
+export const ListCoreReleases = () => invoke<CoreRelease[]>('list_core_releases');
+
+/** Install one specific core version; accepts `2.7.0` or `v2.7.0`. */
+export const InstallCoreVersion = (version: string) =>
+  invoke<Status>('install_core_version', {version});
 
 export const CheckAppUpdate = () => invoke<AppUpdateInfo>('check_app_update');
 
