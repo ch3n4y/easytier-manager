@@ -10,6 +10,8 @@ use tauri_plugin_updater::Update;
 use crate::app_update::{self, AppUpdateInfo};
 use crate::config::{read_config_files, ConfigPayload};
 use crate::error::{Error, Result};
+#[cfg(target_os = "android")]
+use crate::app_update_android;
 use crate::paths::core_path;
 use crate::platform;
 use crate::service::{self, ServiceAction};
@@ -46,6 +48,9 @@ pub struct AppState {
     /// Desktop only: there is no in-app update channel for an APK.
     #[cfg(desktop)]
     pub pending_update: Mutex<Option<Update>>,
+    /// Android's counterpart: the release and APK asset the panel offered.
+    #[cfg(target_os = "android")]
+    pub pending_apk: Mutex<Option<crate::app_update_android::Pending>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -424,6 +429,50 @@ pub async fn install_app_update(app: AppHandle, state: State<'_, AppState>) -> R
 
     let bytes = app_update::download(&app, &update).await?;
     app_update::install(&app, &update, bytes)
+}
+
+/// Android's update check: the release listing, minus the updater manifest,
+/// which describes signed desktop archives rather than an installable APK.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn check_app_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<app_update_android::AppUpdateInfo> {
+    let running = app.package_info().version.to_string();
+    let pending = app_update_android::check(&running).await?;
+    let info = app_update_android::describe(&running, pending.as_ref());
+
+    let mut slot = state
+        .pending_apk
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *slot = pending;
+
+    Ok(info)
+}
+
+/// Download the APK and hand it to the system installer.
+///
+/// The install itself is the user's decision, made in Android's dialog; this
+/// command returns as soon as that dialog has been launched.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn install_app_update(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    let pending = {
+        let mut slot = state
+            .pending_apk
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        slot.take()
+    };
+
+    let Some(pending) = pending else {
+        return Err(Error::msg("请先检查更新"));
+    };
+
+    let path = app_update_android::download(&app, &pending.asset).await?;
+    app_update_android::install(&app, &path)
 }
 
 #[tauri::command]

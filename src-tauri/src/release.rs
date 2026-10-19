@@ -45,6 +45,20 @@ pub struct GithubRelease {
     pub tag_name: String,
     #[serde(default)]
     pub assets: Vec<ReleaseAsset>,
+    /// Release notes. Present in the API payload, absent from the manifest
+    /// shape the updater uses, hence the default. Only the Android update path
+    /// reads them, so desktop treats them as spare.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    /// Pre-releases are listed but marked, so the picker can warn about them.
+    #[serde(default)]
+    pub prerelease: bool,
+    /// Drafts never have usable assets and are filtered out of the listing.
+    #[serde(default)]
+    pub draft: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -89,7 +103,137 @@ pub async fn latest_asset() -> Result<(GithubRelease, ReleaseAsset)> {
     Err(last_error.unwrap_or_else(|| Error::msg("github release request failed")))
 }
 
-fn api_client() -> Result<reqwest::Client> {
+/// The release listing, newest first. Forty entries covers roughly a year of
+/// EasyTier releases, which is as far back as anyone reasonably rolls.
+#[cfg(desktop)]
+const RELEASE_LIST_API_URL: &str =
+    "https://api.github.com/repos/EasyTier/EasyTier/releases?per_page=40";
+#[cfg(desktop)]
+const RELEASE_TAG_API_URL: &str = "https://api.github.com/repos/EasyTier/EasyTier/releases/tags/";
+
+/// One selectable core version, flattened from GitHub's release payload.
+///
+/// The picker needs the tag (what actually gets installed), the version it
+/// displays, the publication date, and whether this platform has an asset at
+/// all: a release without one cannot be installed and must not be offered.
+#[cfg(desktop)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreRelease {
+    pub tag: String,
+    pub version: String,
+    pub published_at: String,
+    pub prerelease: bool,
+    pub asset_name: String,
+}
+
+/// Flatten one API entry, dropping anything this platform cannot install.
+#[cfg(desktop)]
+fn core_release_from(release: &GithubRelease) -> Option<CoreRelease> {
+    if release.draft || release.tag_name.is_empty() {
+        return None;
+    }
+
+    let version = normalize_version(&release.tag_name);
+    let asset_name = asset_name_for_version(&version);
+    if !release.assets.iter().any(|asset| asset.name == asset_name) {
+        return None;
+    }
+
+    Some(CoreRelease {
+        tag: release.tag_name.clone(),
+        version,
+        published_at: release.published_at.clone().unwrap_or_default(),
+        prerelease: release.prerelease,
+        asset_name,
+    })
+}
+
+/// Every core version this platform can install, newest first.
+///
+/// Same mirror chain as the single-release lookup: the GitHub API is often
+/// unreachable from mainland networks, so a failing mirror moves on.
+#[cfg(desktop)]
+pub async fn list_releases() -> Result<Vec<CoreRelease>> {
+    let client = api_client()?;
+    let mut last_error: Option<Error> = None;
+
+    for url in api_urls(RELEASE_LIST_API_URL) {
+        match fetch_release_list(&client, &url).await {
+            Ok(releases) => {
+                return Ok(releases.iter().filter_map(core_release_from).collect());
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| Error::msg("github release list request failed")))
+}
+
+async fn fetch_release_list(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<GithubRelease>> {
+    let response = client
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "EasyTier-Manager")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(Error::msg(format!(
+            "github release list request failed: {}",
+            response.status()
+        )));
+    }
+
+    Ok(response.json::<Vec<GithubRelease>>().await?)
+}
+
+/// Resolve one specific tag — a version the user picked from the listing.
+#[cfg(desktop)]
+pub async fn release_by_tag(tag: &str) -> Result<(GithubRelease, ReleaseAsset)> {
+    let tag = tag.trim();
+    // The tag is interpolated into a URL, so anything outside this alphabet is
+    // refused rather than escaped: release tags are known to be `v1.2.3`-shaped.
+    let valid = !tag.is_empty()
+        && tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    if !valid {
+        return Err(Error::msg(format!("invalid release tag: {tag}")));
+    }
+
+    let url = format!("{RELEASE_TAG_API_URL}{tag}");
+    let client = api_client()?;
+    let mut last_error: Option<Error> = None;
+
+    for candidate in api_urls(&url) {
+        let release = match fetch_release(&client, &candidate).await {
+            Ok(release) => release,
+            Err(err) => {
+                last_error = Some(err);
+                continue;
+            }
+        };
+
+        let asset_name = asset_name_for_version(&normalize_version(&release.tag_name));
+        return match release
+            .assets
+            .iter()
+            .find(|asset| asset.name == asset_name)
+            .cloned()
+        {
+            Some(asset) => Ok((release, asset)),
+            None => Err(Error::msg(format!("release asset not found: {asset_name}"))),
+        };
+    }
+
+    Err(last_error.unwrap_or_else(|| Error::msg("github release request failed")))
+}
+
+pub(crate) fn api_client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(API_TIMEOUT)
@@ -104,7 +248,10 @@ fn download_client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<GithubRelease> {
+pub(crate) async fn fetch_release(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<GithubRelease> {
     let response = client
         .get(url)
         .header("Accept", "application/vnd.github+json")
@@ -392,6 +539,53 @@ mod tests {
         assert_eq!(normalize_version(" v2.6.4 "), "2.6.4");
         assert_eq!(normalize_version("2.6.4"), "2.6.4");
         assert_eq!(normalize_version("vv2.6.4"), "v2.6.4");
+    }
+
+    /// The picker must never offer a release this platform cannot install:
+    /// assets are per-OS/arch, and a draft has none at all.
+    #[cfg(desktop)]
+    #[test]
+    fn listing_keeps_only_installable_releases() {
+        let asset = asset_name_for_version("2.7.0");
+        let release = |tag: &str, names: &[&str], draft: bool, prerelease: bool| GithubRelease {
+            tag_name: tag.to_string(),
+            assets: names
+                .iter()
+                .map(|name| ReleaseAsset {
+                    name: name.to_string(),
+                    browser_download_url: String::new(),
+                })
+                .collect(),
+            body: None,
+            published_at: Some("2026-10-06T13:21:27Z".to_string()),
+            prerelease,
+            draft,
+        };
+
+        let installable = core_release_from(&release("v2.7.0", &[&asset], false, false))
+            .expect("matching asset is offered");
+        assert_eq!(installable.version, "2.7.0");
+        assert_eq!(installable.tag, "v2.7.0");
+        assert_eq!(installable.asset_name, asset);
+        assert_eq!(installable.published_at, "2026-10-06T13:21:27Z");
+        assert!(!installable.prerelease);
+
+        // Some other platform's zip is not ours to install.
+        assert!(core_release_from(&release(
+            "v2.7.0",
+            &["easytier-ohos-arm64-v2.7.0.zip"],
+            false,
+            false
+        ))
+        .is_none());
+        // Drafts are never listed.
+        assert!(core_release_from(&release("v9.9.9", &[&asset], true, false)).is_none());
+
+        // Pre-releases stay listed, marked, so the UI can warn instead of hide.
+        let nightly =
+            core_release_from(&release("nightly", &[&asset], false, true)).expect("pre-release is listed");
+        assert!(nightly.prerelease);
+        assert_eq!(nightly.version, "nightly");
     }
 
     #[test]

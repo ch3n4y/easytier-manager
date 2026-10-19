@@ -6,6 +6,10 @@
          quick-settings tile. 13+ also needs the notification permission or the
          foreground service is killed silently. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Updates ship as an APK; without this the installer refuses to open for
+         us. It still asks the user to allow "install unknown apps" the first
+         time, which is the consent that actually matters. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

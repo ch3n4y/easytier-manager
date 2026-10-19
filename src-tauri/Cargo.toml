@@ -16,7 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri = { version = "2", features = [ "tray-icon"] }
 # Self-update for the manager bundle. `updater_builder` returns the builder
 # directly rather than a `Result` from 2.11 on, so the minor is pinned.
 # Desktop only — the updater plugin supports Windows, Linux and macOS, and
@@ -32,7 +32,8 @@ zip = "2"
 regex = "1"
 walkdir = "2"
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "time", "sync"] }
+# `fs`/`io-util` are for streaming the Android APK download to disk.
+tokio = { version = "1", features = ["rt", "time", "sync", "fs", "io-util"] }
 
 # macOS: the privileged helper (launchd + unix socket) and the launchd service
 # manager. `home` is pinned because newer 0.5.x releases require Rust 1.88 while

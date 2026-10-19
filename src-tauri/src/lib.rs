@@ -36,6 +36,10 @@ mod release;
 mod tray;
 
 #[cfg(target_os = "android")]
+mod apk_installer;
+#[cfg(target_os = "android")]
+mod app_update_android;
+#[cfg(target_os = "android")]
 mod mobile_core;
 
 use std::time::Duration;
@@ -112,6 +116,8 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(tauri_plugin_vpnservice::init())
+        // Needed before `install_app_update` can reach the package installer.
+        .plugin(crate::apk_installer::init())
         .invoke_handler(tauri::generate_handler![
             app::get_status,
             app::install_latest,
@@ -122,6 +128,8 @@ pub fn run() {
             app::save_config,
             app::check_core_update,
             app::update_core,
+            app::check_app_update,
+            app::install_app_update,
             app::read_logs,
             app::clear_logs,
             app::get_settings,

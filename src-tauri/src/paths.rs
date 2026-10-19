@@ -16,6 +16,13 @@ pub const RELEASE_API_URL: &str = "https://api.github.com/repos/EasyTier/EasyTie
 pub const UPDATER_ENDPOINT: &str =
     "https://github.com/ch3n4y/easytier-manager/releases/latest/download/latest.json";
 
+/// The manager's own release listing. Android cannot use the updater manifest
+/// (it points at signed archives, not an APK), so it reads the GitHub API and
+/// picks the APK asset out of the same release.
+#[cfg(target_os = "android")]
+pub const APP_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/ch3n4y/easytier-manager/releases/latest";
+
 pub const GITHUB_PROXY_PREFIXES: [&str; 3] = ["", "https://gh-proxy.com/", "https://ghproxy.net/"];
 
 /// The managed EasyTier binaries. Windows ships `.exe` files; macOS does not.
@@ -276,6 +283,12 @@ if [ -r "$service_env" ]; then
 fi
 
 mkdir -p "$state_dir"
+# The log directory lives outside the app root and can disappear (system log
+# cleanup, a manual rm). Under `set -eu` the `exec >>` below then aborts the
+# script, and KeepAlive respawns it every ten seconds with no log to explain
+# why — the service silently never starts. Owning the directory here keeps the
+# wrapper self-sufficient, whatever the app did or did not create.
+mkdir -p "$(dirname "$log_file")"
 export HOME="${EASYTIER_HOME:-$state_dir}"
 export XDG_STATE_HOME="${XDG_STATE_HOME:-$state_dir}"
 umask 022
@@ -493,6 +506,22 @@ mod tests {
         assert!(wrapper.contains("easytier.pid"));
         assert!(wrapper.contains("easytier.log"));
         assert!(wrapper.contains("exec >>"));
+    }
+
+    /// `/Library/Logs` is not ours to assume: when the directory is gone the
+    /// `exec >>` below it fails, `set -eu` aborts the script, and KeepAlive
+    /// respawns it every ten seconds without ever writing a log. The wrapper
+    /// has to own the directory before it redirects.
+    #[test]
+    fn wrapper_creates_log_directory_before_redirecting() {
+        let wrapper = service_wrapper();
+        let mkdir_at = wrapper
+            .find("mkdir -p \"$(dirname \"$log_file\")\"")
+            .expect("wrapper must create the log directory");
+        let exec_at = wrapper
+            .find("exec >> \"$log_file\"")
+            .expect("wrapper must redirect output");
+        assert!(mkdir_at < exec_at, "{wrapper}");
     }
 
     #[test]

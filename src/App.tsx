@@ -449,7 +449,9 @@ function Shell() {
 
   async function installAppUpdate() {
     await run('appUpdate', InstallAppUpdate, () => {
-      setMessage('管理器已更新');
+      // On Android this only launches the package installer; the package is
+      // replaced after the user confirms, so claiming it is done would be a lie.
+      setMessage(mobile ? '安装包已下载，请在系统弹窗中确认安装' : '管理器已更新');
     });
   }
 
