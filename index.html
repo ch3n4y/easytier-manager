@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8"/>
-    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <!-- `viewport-fit=cover` is what makes `env(safe-area-inset-*)` report real
+         values on a notched or punch-hole phone. Without it the insets are 0 and
+         the layout is clipped by the cutout instead of avoiding it. -->
+    <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
     <title>EasyTier Manager</title>
 </head>
 <body>

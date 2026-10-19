@@ -1237,8 +1237,11 @@ html.is-mobile .rail {
   flex-direction: row;
   align-items: stretch;
   gap: var(--space-2xs);
-  /* env() falls back to 0 on any platform without insets. */
-  padding: 6px var(--space-xs) calc(6px + env(safe-area-inset-bottom, 0px));
+  /* Bottom is the gesture bar; the sides matter in landscape, where the bar
+     spans the same edge as the cutout. env() falls back to 0 elsewhere. */
+  padding: 6px calc(var(--space-xs) + env(safe-area-inset-right, 0px))
+    calc(6px + env(safe-area-inset-bottom, 0px))
+    calc(var(--space-xs) + env(safe-area-inset-left, 0px));
   border-right: 0;
   border-top: 1px solid var(--line);
   /* Persistent chrome: sliding it in on every mount would read as a page
@@ -1317,10 +1320,17 @@ html.is-mobile .rail-foot .rail-item {
    is only a title, so it gives its padding back to the content. */
 html.is-mobile .stage-head {
   gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
+  /* The status bar and the cutout sit above the title. `env()` resolves to 0 on
+     a screen with neither, so this costs nothing on a flat device. */
+  padding: calc(var(--space-sm) + env(safe-area-inset-top, 0px))
+    calc(var(--space-md) + env(safe-area-inset-right, 0px)) var(--space-sm)
+    calc(var(--space-md) + env(safe-area-inset-left, 0px));
 }
 html.is-mobile .scroll {
-  padding: var(--space-sm) var(--space-md) var(--space-md);
+  /* Landscape phones put the cutout on a side, so the horizontal insets belong
+     on the scroller too rather than only on the header. */
+  padding: var(--space-sm) calc(var(--space-md) + env(safe-area-inset-right, 0px))
+    var(--space-md) calc(var(--space-md) + env(safe-area-inset-left, 0px));
 }
 
 /* 44px is the shortest target a thumb hits without aiming; buttons, icon

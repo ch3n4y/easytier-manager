@@ -59,10 +59,16 @@ export function Rail({ view, onSelectView, mobile }: RailProps) {
             隐藏到托盘
           </button>
         )}
-        <button className="rail-item" onClick={() => void QuitApp()}>
-          <Icon name="exit" />
-          退出
-        </button>
+        {/* Android has no process to quit into: the system owns the app's
+            lifecycle, and killing it would take the VPN service down with it.
+            Leaving the button out keeps the foot honest, same as the tray
+            toggle above. */}
+        {!mobile && (
+          <button className="rail-item" onClick={() => void QuitApp()}>
+            <Icon name="exit" />
+            退出
+          </button>
+        )}
       </div>
     </aside>
   );
