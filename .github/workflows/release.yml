@@ -181,10 +181,24 @@ jobs:
           EOF
 
       - name: Build APK
-        # Read ANDROID_HOME from the shell: the action exports it through
-        # GITHUB_ENV, which is not guaranteed to be visible to `env:` here.
+        # cc-rs finds the NDK through Tauri's own environment, but bindgen does
+        # not: without the sysroot it picks up the host's glibc headers and kcp-sys
+        # dies on 'bits/libc-header-start.h'. Locally this comes from the ignored
+        # `.cargo/config.toml`, so CI has to pass it explicitly.
         run: |
-          export NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          set -euo pipefail
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          PREBUILT="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          SYSROOT="$PREBUILT/sysroot"
+          BIN="$PREBUILT/bin"
+
+          export NDK_HOME="$NDK"
+          export "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android=--sysroot=$SYSROOT -I$SYSROOT/usr/include -I$SYSROOT/usr/include/aarch64-linux-android"
+          export "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=--sysroot=$SYSROOT -I$SYSROOT/usr/include -I$SYSROOT/usr/include/aarch64-linux-android"
+          export CC_aarch64_linux_android="$BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$BIN/aarch64-linux-android24-clang"
+
           pnpm tauri android build --apk --target aarch64
 
       - name: Verify the APK is signed
