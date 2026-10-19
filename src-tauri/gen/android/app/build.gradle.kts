@@ -13,9 +13,29 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release signing lives outside the repo. CI writes keystore.properties from
+// secrets; a local build that lacks the file just produces an unsigned APK
+// instead of failing, which keeps `tauri android build` usable without it.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.ch3n4y.easytier_manager"
+    signingConfigs {
+        if (keystoreProperties.isNotEmpty()) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.ch3n4y.easytier_manager"
@@ -37,6 +57,11 @@ android {
             }
         }
         getByName("release") {
+            // Without the properties file this stays unset and Gradle emits an
+            // unsigned APK, which is what a plain local release build should do.
+            if (keystoreProperties.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
