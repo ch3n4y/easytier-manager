@@ -24,9 +24,11 @@ use tempfile::TempDir;
 #[cfg(desktop)]
 use crate::release::{
     download_and_extract, latest_asset, list_releases, normalize_version, release_by_tag,
-    stage_binaries, stage_install_files, CoreRelease,
+    stage_binaries, stage_install_files,
 };
-use crate::release::UpdateInfo;
+// `CoreRelease` is imported unconditionally: the command that returns it is
+// registered everywhere, it simply answers with an empty list on Android.
+use crate::release::{CoreRelease, UpdateInfo};
 
 #[derive(Default)]
 pub struct AdminState {

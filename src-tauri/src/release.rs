@@ -116,7 +116,8 @@ const RELEASE_TAG_API_URL: &str = "https://api.github.com/repos/EasyTier/EasyTie
 /// The picker needs the tag (what actually gets installed), the version it
 /// displays, the publication date, and whether this platform has an asset at
 /// all: a release without one cannot be installed and must not be offered.
-#[cfg(desktop)]
+// No `#[cfg(desktop)]` here: Android still answers `list_core_releases`, just
+// with an empty list, so the type has to exist on every platform.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreRelease {
