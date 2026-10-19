@@ -231,7 +231,10 @@ jobs:
       - name: Name the asset
         run: |
           set -euo pipefail
+          # A dispatch run has a branch as its ref, and branches contain slashes:
+          # the name would turn into a path segment and the copy would fail.
           version="${GITHUB_REF_NAME#v}"
+          version="${version//\//-}"
           src=$(ls src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk | head -n1)
           mkdir -p dist
           cp "$src" "dist/EasyTier-Manager-${version}-android.apk"
