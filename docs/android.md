@@ -143,10 +143,34 @@ feature you must install a crypto provider before building a Client.
 该入口），并在 `Cargo.toml` 显式依赖 `rustls`。**编译期完全看不出这个问题**，只有运行时
 才暴露 —— 这也印证了"能编译 ≠ 能跑"。
 
-### 仍未验证（阻断级）
+### 隧道打通（2026-10-19 续，Xiaomi 2211133C / Android 16）
 
-1. **VPN 授权弹窗与隧道是否真的通流量**：设备在安装新 APK 前断开，这部分还没跑到。
-2. 安全区（`env(safe-area-inset-*)`）、各家 ROM 的后台查杀策略、真实 IME 行为，均未在硬件上确认。
+**「启动」现在能真正建立隧道**：`running=true`，系统栏出现 VPN 图标，
+隧道内 `ping 10.254.27.1` 返回 **0% 丢包、RTT 约 40ms**。
+
+拿到这个结果前，启动流程在四个独立位置各失败一次，每修好一个才暴露下一个。
+全部只在真机上可见，单元测试与编译都发现不了：
+
+1. **capability 缺 `windows`**：Tauri 的 ACL 是按 `windows`/`webviews` 列表匹配的，
+   列表为空 ≠ 全匹配。所以 `prepare_vpn` 被拒，报错还自相矛盾
+   （`allowed on: [URL: local]` 却说 not allowed）。同时缺 `allow-registerListener`。
+2. **`TauriVpnService` 未在清单声明**：插件只带了快捷开关磁贴的声明，服务本体要由宿主应用
+   声明，否则 `start_vpn` 报 `Unable to start service ... not found`。
+   还需要 `FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_SPECIAL_USE`、`POST_NOTIFICATIONS`。
+3. **MTU 必须显式传**：`setMtu(0)` 抛 `Bad mtu`。插件的
+   `args?.getInt(MTU) ?: 1500` 对缺失的 key 不会回落到 1500（`getInt` 返回 0 而非 null），
+   所以调用方一定要给值。现在用核心配置里的 MTU（1380）。
+4. **fd 事件走插件通道**：Kotlin 用 `PluginHandle.trigger` 发出，全局 `listen`
+   收不到，必须用 `addPluginListener('vpnservice', 'vpn_service_start', ...)`；
+   而且要先 await 订阅再 `start_vpn` —— fd 在约 50ms 后就到，订阅没挂好就会丢。
+
+另外：config server 模式冷启动时，核心先起来、网络列表几秒后才下发，
+所以 `startTunnelAndroid` 会最多等 12 秒再判定"没有隧道地址"。
+
+### 仍未验证
+
+1. 各家 ROM 的后台查杀策略、真实 IME 行为，尚未在硬件上确认（安全区已在挖孔屏上确认）。
+2. 通知文案/图标仍是插件默认（英文、系统图标）。
 
 ## 构建备忘（真机实测踩到的坑）
 
