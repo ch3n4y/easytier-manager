@@ -58,6 +58,8 @@ pub struct ReleaseAsset {
 /// The user's configured accelerator is tried first, then direct access, then
 /// the built-in mirrors — the release API is often unreachable from mainland
 /// networks.
+/// Only the desktop builds fetch a core; Android links it in.
+#[cfg(desktop)]
 pub async fn latest_asset() -> Result<(GithubRelease, ReleaseAsset)> {
     let client = api_client()?;
     let mut last_error: Option<Error> = None;
@@ -326,6 +328,9 @@ fn find_file_optional(root: &Path, name: &str) -> Option<PathBuf> {
 
 /// EasyTier publishes one combined CLI zip per OS/arch, e.g.
 /// `easytier-windows-x86_64-v2.6.4.zip` or `easytier-macos-aarch64-v2.6.4.zip`.
+/// Android links the core into the APK instead of downloading it, so there is no
+/// release asset to name there.
+#[cfg(desktop)]
 pub fn asset_name_for_version(version: &str) -> String {
     format!("easytier-{}-v{version}.zip", platform_asset_tag())
 }

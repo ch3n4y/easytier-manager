@@ -23,10 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::{anyhow, Context as _, Result};
 use easytier::common::MachineIdOptions;
-use easytier::instance::factory::{
-    attach_mobile_tun_fd, get_mobile_tun_config, native_instance_manager, MobileTunConfig,
-    NativeInstanceManager,
-};
+use easytier::instance::factory::{native_instance_manager, NativeInstanceManager};
 use easytier::web_client::{self, WebClient};
 use easytier_core::config::toml::TomlConfig;
 use easytier_core::instance::manager::ConfigFileControl;
@@ -85,7 +82,10 @@ pub async fn start(config_server: &str, config_file: &Path, state_dir: &Path) ->
         )
     };
 
-    *slot = Some(Core { manager, web_client });
+    *slot = Some(Core {
+        manager,
+        web_client,
+    });
     STARTED.store(true, Ordering::SeqCst);
     count_instances(&slot);
     Ok(INSTANCES.load(Ordering::SeqCst))
@@ -113,25 +113,88 @@ pub async fn stop() -> Result<()> {
 }
 
 /// What the shell has to ask `VpnService` for: addresses, routes and DNS.
-pub async fn tun_config() -> MobileTunConfig {
+///
+/// The core exposes no single "tun plan" call, so the plan is read back from
+/// the running instances: each instance reports its own virtual IP and the
+/// routes it currently carries. That is the same information the official GUI
+/// feeds to `start_vpn`.
+#[derive(Debug, Clone, Default)]
+pub struct TunPlan {
+    pub addresses: Vec<String>,
+    pub routes: Vec<String>,
+    pub dns: Option<String>,
+    pub instance_ids: Vec<uuid::Uuid>,
+    /// Instances that were skipped because they have no address yet. They are
+    /// reported rather than silently dropped: an empty tunnel is otherwise
+    /// indistinguishable from one that never started.
+    pub rejected: Vec<String>,
+}
+
+/// Read the TUN plan from whichever instances are running.
+pub async fn tun_config() -> TunPlan {
     let slot = CORE.lock().await;
     let Some(core) = slot.as_ref() else {
-        return MobileTunConfig::default();
+        return TunPlan::default();
     };
-    let ids = core.manager.instance_ids();
-    get_mobile_tun_config(core.manager.as_ref(), &ids).await
+
+    let mut plan = TunPlan::default();
+    for id in core.manager.instance_ids() {
+        let Some(info) = core.manager.network_info(id).await else {
+            plan.rejected.push(format!("{id}: 无法读取运行信息"));
+            continue;
+        };
+        if !info.running {
+            plan.rejected.push(format!("{id}: 实例未运行"));
+            continue;
+        }
+
+        let virtual_ip = info
+            .my_node_info
+            .as_ref()
+            .and_then(|node| node.virtual_ipv4.as_ref())
+            .map(|inet| inet.to_string());
+        let Some(virtual_ip) = virtual_ip else {
+            plan.rejected.push(format!("{id}: 尚未分配到虚拟 IP"));
+            continue;
+        };
+
+        plan.addresses.push(virtual_ip);
+        plan.instance_ids.push(id);
+        for route in &info.routes {
+            for cidr in &route.proxy_cidrs {
+                if !plan.routes.contains(cidr) {
+                    plan.routes.push(cidr.clone());
+                }
+            }
+        }
+    }
+
+    plan
 }
 
 /// Hand the established TUN device to the running instances.
-pub async fn attach_tun_fd(fd: i32) -> Result<MobileTunConfig> {
+pub async fn attach_tun_fd(fd: i32) -> Result<TunPlan> {
+    let plan = tun_config().await;
+    if plan.instance_ids.is_empty() {
+        return Err(anyhow!(
+            "没有可挂接 TUN 的实例：{}",
+            if plan.rejected.is_empty() {
+                "核心尚未创建网络实例".to_string()
+            } else {
+                plan.rejected.join("；")
+            }
+        ));
+    }
+
     let slot = CORE.lock().await;
     let core = slot.as_ref().ok_or_else(|| anyhow!("核心尚未启动"))?;
-    let ids = core.manager.instance_ids();
-    let config = attach_mobile_tun_fd(core.manager.as_ref(), fd, Some(ids.as_slice()))
-        .await
-        .context("挂接 TUN 设备失败")?;
+    for id in &plan.instance_ids {
+        core.manager
+            .attach_tun_fd(*id, fd)
+            .with_context(|| format!("挂接 TUN 设备失败：{id}"))?;
+    }
     TUN_ATTACHED.store(true, Ordering::SeqCst);
-    Ok(config)
+    Ok(plan)
 }
 
 /// Whether the core has been started.

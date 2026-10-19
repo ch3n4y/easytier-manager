@@ -154,7 +154,9 @@ async fn start_core() -> Result<()> {
         .map_err(as_error)?;
 
     if server.is_empty() {
-        log_line(&format!("core started from default.conf ({count} instance)"));
+        log_line(&format!(
+            "core started from default.conf ({count} instance)"
+        ));
     } else {
         log_line(&format!("core started against {server} ({count} instance)"));
     }
@@ -165,9 +167,15 @@ async fn start_core() -> Result<()> {
 /// starts — so a restart is what applies a change.
 pub async fn write_config_server(_state: &AppState, server: &str) -> Result<()> {
     let server = server.to_string();
+    // The closure runs on a blocking thread and needs an owned value, so it
+    // gets its own copy; the log line below still reads the original.
+    let for_write = server.clone();
     run_blocking(move || {
         fs::create_dir_all(config_dir())?;
-        fs::write(service_env_path(), format!("EASYTIER_CONFIG_SERVER={server}\n"))?;
+        fs::write(
+            service_env_path(),
+            format!("EASYTIER_CONFIG_SERVER={for_write}\n"),
+        )?;
         Ok(())
     })
     .await?;

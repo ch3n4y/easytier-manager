@@ -130,6 +130,7 @@ pub fn apply_startup_size(window: &WebviewWindow) -> Result<()> {
 
 /// Reveal the main window, already sized. The frontend calls this once it has
 /// painted, which is what keeps startup from showing an empty frame first.
+#[cfg(desktop)]
 #[tauri::command]
 pub fn show_main_window(app: tauri::AppHandle) -> Result<()> {
     let window = app

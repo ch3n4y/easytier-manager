@@ -524,23 +524,19 @@ pub struct TunPlan {
 }
 
 #[cfg(target_os = "android")]
-impl From<easytier::instance::factory::MobileTunConfig> for TunPlan {
-    fn from(config: easytier::instance::factory::MobileTunConfig) -> Self {
+impl From<crate::mobile_core::TunPlan> for TunPlan {
+    fn from(plan: crate::mobile_core::TunPlan) -> Self {
         Self {
-            ipv4_addr: config.addresses.first().cloned(),
-            addresses: config.addresses,
-            routes: config.routes,
-            dns: config.dns,
-            instance_ids: config
+            ipv4_addr: plan.addresses.first().cloned(),
+            addresses: plan.addresses,
+            routes: plan.routes,
+            dns: plan.dns,
+            instance_ids: plan
                 .instance_ids
                 .into_iter()
                 .map(|id| id.to_string())
                 .collect(),
-            rejected: config
-                .rejected
-                .into_iter()
-                .map(|rejected| rejected.error)
-                .collect(),
+            rejected: plan.rejected,
         }
     }
 }
