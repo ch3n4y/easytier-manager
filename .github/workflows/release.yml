@@ -214,9 +214,17 @@ jobs:
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          # Several build-tools versions can be installed, and an unquoted glob
+          # would expand to more than one word: apksigner then reads the second
+          # path as its command and reports "Unsupported command".
+          APKSIGNER=$(ls -d "$SDK"/build-tools/*/apksigner | sort -V | tail -n1)
+          echo "apksigner: $APKSIGNER"
           apk=$(ls src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk | head -n1)
-          case "$apk" in *unsigned*) echo "::error::APK is unsigned: $apk"; exit 1;; esac
-          "$SDK"/build-tools/*/apksigner verify --print-certs "$apk"
+          echo "apk: $apk"
+          case "$apk" in
+            *unsigned*) echo "::error::APK is unsigned: $apk"; exit 1;;
+          esac
+          "$APKSIGNER" verify --print-certs "$apk"
 
       # The app picks its update out of the release by this suffix, so the name
       # is part of the contract rather than cosmetic.
