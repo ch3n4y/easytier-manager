@@ -90,9 +90,19 @@ pub fn init_logging() {
         .without_time()
         .with_writer(writer);
 
+    // Without a filter the subscriber accepts every level, and `jni` logs its
+    // whole call sequence at TRACE — those lines filled the panel and pushed
+    // the core's own output out of sight. Keep INFO and above; RUST_LOG still
+    // overrides this when a developer needs the noise back.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
     // Another subscriber may already own the global slot; losing that race must
     // not take startup down, the panel just stays quiet.
-    let _ = tracing_subscriber::registry().with(layer).try_init();
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(layer)
+        .try_init();
 }
 
 /// A writer handle the `fmt` layer can create one of per event.

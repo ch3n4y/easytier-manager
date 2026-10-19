@@ -16,7 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 # Self-update for the manager bundle. `updater_builder` returns the builder
 # directly rather than a `Result` from 2.11 on, so the minor is pinned.
 # Desktop only — the updater plugin supports Windows, Linux and macOS, and
@@ -69,4 +69,4 @@ tauri-plugin-vpnservice = { git = "https://github.com/EasyTier/EasyTier", tag = 
 anyhow = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "registry"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "registry", "env-filter"] }
