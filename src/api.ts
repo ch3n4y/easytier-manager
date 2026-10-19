@@ -103,3 +103,41 @@ export const ShowMainWindow = () => invoke<void>('show_main_window');
 
 /** Quit for real. Closing the window only hides it. */
 export const QuitApp = () => invoke<void>('quit_app');
+
+/**
+ * Android: what `VpnService` has to be asked for — the addresses, routes and
+ * DNS the running instances claimed. `ipv4Addr` is the first of `addresses`,
+ * because the plugin's argument only carries one.
+ */
+export type TunPlan = {
+  addresses: string[];
+  ipv4Addr: string | null;
+  routes: string[];
+  dns: string | null;
+  instanceIds: string[];
+  /** Members whose claims conflicted and were left out of the plan. */
+  rejected: string[];
+};
+
+/** Ask the core what the TUN device should look like. Android only. */
+export const AndroidTunConfig = () => invoke<TunPlan>('android_tun_config');
+
+/** Hand the established TUN descriptor back to the core. Android only. */
+export const AndroidAttachTunFd = (fd: number) => invoke<TunPlan>('android_attach_tun_fd', {fd});
+
+/**
+ * `tauri-plugin-vpnservice`, called directly.
+ *
+ * The app does not depend on the plugin's JS package: its three commands are a
+ * single `invoke` each, and naming them here keeps the vendor surface to one
+ * file. `prepare_vpn` must run before `start_vpn` — it is what puts Android's
+ * VPN consent dialog on screen.
+ */
+export type VpnReply = { granted?: boolean; errorMsg?: string } | null;
+
+export const PrepareVpn = () => invoke<VpnReply>('plugin:vpnservice|prepare_vpn', {});
+
+export const StartVpn = (request: { ipv4Addr: string; routes: string[]; dns?: string }) =>
+  invoke<VpnReply>('plugin:vpnservice|start_vpn', request);
+
+export const StopVpn = () => invoke<VpnReply>('plugin:vpnservice|stop_vpn', {});

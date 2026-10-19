@@ -1180,3 +1180,257 @@ h3 {
   margin: var(--space-md);
 }
 
+/* ==========================================================================
+   Phone shell — Android (and any window too narrow for a rail)
+   Every rule below is keyed off `html.is-mobile`, which App sets from
+   `Status.platform` (the viewport width stands in until the first status
+   lands). Nothing above this line is redefined: the desktop window never gets
+   the class, so its geometry is not merely preserved by care but by selector.
+   ========================================================================== */
+
+/* Touch reads at arm's length rather than desk distance, so the ramp shifts up
+   one step. The ratios and the 4pt rhythm are unchanged — this is the same
+   system at a different viewing distance, not a second type scale. */
+html.is-mobile {
+  --fs-caption: 0.75rem; /* 12 */
+  --fs-label: 0.8125rem; /* 13 */
+  --fs-sm: 0.875rem; /* 14 */
+  --fs-body: 0.9375rem; /* 15 */
+
+  /* The webview fills the screen: there is no window shadow to fade into a
+     gutter, and the tab bar carries the safe area instead. */
+  --window-gutter-x: 0px;
+  --window-gutter-top: 0px;
+  --window-gutter-bottom: 0px;
+}
+
+/* dvh, not %: the Android URL bar slides in and out, and a static viewport
+   height leaves the tab bar floating above the real bottom edge. */
+html.is-mobile body,
+html.is-mobile #root {
+  height: 100dvh;
+  overflow: hidden; /* no sideways rubber-band */
+}
+html.is-mobile body {
+  /* Edge to edge, so nothing transparent can show through at the edges. */
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Rail and stage stack instead of sitting side by side. Ordering is explicit:
+   the stage is content and must sit above chrome that belongs to the bottom. */
+html.is-mobile .shell {
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+html.is-mobile .stage {
+  order: 1;
+  min-height: 0;
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────── */
+html.is-mobile .rail {
+  order: 2;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--space-2xs);
+  /* env() falls back to 0 on any platform without insets. */
+  padding: 6px var(--space-xs) calc(6px + env(safe-area-inset-bottom, 0px));
+  border-right: 0;
+  border-top: 1px solid var(--line);
+  /* Persistent chrome: sliding it in on every mount would read as a page
+     transition that never resolves. */
+  animation: none;
+}
+/* No room for a brand lockup in a tab bar, and nothing to push to the bottom —
+   flex order already puts the bar there. */
+html.is-mobile .rail-brand,
+html.is-mobile .rail-spacer {
+  display: none;
+}
+html.is-mobile .rail-nav {
+  flex: 1;
+  flex-direction: row;
+  gap: var(--space-2xs);
+}
+
+/* A tab, not a list row: icon over label, thumb-high, and the label demoted to
+   a caption so two tabs never compete with the stage title. */
+html.is-mobile .rail-nav .rail-item {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px var(--space-2xs);
+  border-radius: var(--r-md);
+  font-size: var(--fs-caption);
+  font-weight: 620;
+  letter-spacing: 0.01em;
+}
+html.is-mobile .rail-item svg {
+  width: 21px;
+  height: 21px;
+}
+/* Selection is the tab's whole affordance here, so it gets brand colour rather
+   than the desktop rail's neutral lift. */
+html.is-mobile .rail-item.active {
+  background: var(--accent-tint);
+  border-color: color-mix(in oklch, var(--accent) 42%, transparent);
+  color: var(--text);
+  box-shadow: var(--elev-1);
+}
+html.is-mobile .rail-item.active svg {
+  color: var(--accent);
+}
+
+/* The foot keeps only "quit": a divider separates it from the tabs so it reads
+   as an app action, not a third destination. */
+html.is-mobile .rail-foot {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+  padding: 0 0 0 var(--space-2xs);
+  border-top: 0;
+  border-left: 1px solid var(--line);
+}
+html.is-mobile .rail-foot .rail-item {
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 62px;
+  min-height: 52px;
+  padding: 6px var(--space-2xs);
+  border-radius: var(--r-md);
+  font-size: var(--fs-caption);
+  font-weight: 620;
+  text-align: center;
+}
+
+/* ── Stage ───────────────────────────────────────────────────────────────── */
+/* On the desktop this header doubles as the window's drag handle; on a phone it
+   is only a title, so it gives its padding back to the content. */
+html.is-mobile .stage-head {
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+html.is-mobile .scroll {
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+}
+
+/* 44px is the shortest target a thumb hits without aiming; buttons, icon
+   buttons and the segmented control all come up to it. */
+html.is-mobile button {
+  touch-action: manipulation; /* no 300ms wait, no double-tap zoom */
+}
+html.is-mobile .btn,
+html.is-mobile .seg button {
+  min-height: 44px;
+}
+html.is-mobile .iconbtn {
+  width: 44px;
+  height: 44px;
+}
+/* 16px is the threshold below which mobile browsers zoom the page on focus —
+   which would leave the layout wider than the viewport it just measured. */
+html.is-mobile .field input {
+  min-height: 44px;
+  font-size: 1rem;
+}
+
+/* At phone width the medallion and its copy can no longer share a line without
+   squeezing the version readout, so it shrinks before the text does. */
+html.is-mobile .hero {
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+html.is-mobile .ring {
+  width: 76px;
+  height: 76px;
+}
+html.is-mobile .ring svg {
+  width: 32px;
+  height: 32px;
+}
+html.is-mobile .hero-actions {
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+}
+
+/* Titles and toolbars share a row on the desktop; here the toolbar drops to its
+   own line rather than squeezing the title out of existence. */
+html.is-mobile .panel-head,
+html.is-mobile .panel-head .stage-actions {
+  flex-wrap: wrap;
+  row-gap: var(--space-xs);
+}
+
+/* The overview is a flex column inside a flex stage, and the version readout is
+   a nowrap line: without this its min-content width beats the stage and the
+   whole view is pushed past the right edge (the document does not scroll, so it
+   would simply clip). Zero it and the URL ellipsises instead. */
+html.is-mobile .scroll.flush > .view {
+  min-width: 0;
+}
+
+/* The overview's hero and log pane share one stage. On a short screen — a phone
+   in landscape — the log pane would be squeezed to a strip, so it keeps a usable
+   minimum and the stage scrolls instead of clipping it. */
+html.is-mobile .scroll.flush {
+  overflow-y: auto;
+}
+html.is-mobile .panel.fill {
+  min-height: 260px;
+}
+
+/* A toast pinned to a phone edge gets the whole width and wraps: an error
+   truncated to one ellipsised line is not an error the user can act on. */
+html.is-mobile .stage-notice {
+  left: var(--space-md);
+  right: var(--space-md);
+  bottom: var(--space-md);
+  max-width: none;
+  white-space: normal;
+  text-align: center;
+}
+
+/* Dialogs come up from the thumb's edge as a bottom sheet, and clear the
+   gesture bar instead of hiding the confirm button under it. */
+html.is-mobile .scrim {
+  align-items: flex-end;
+  padding: 0;
+}
+html.is-mobile .sheet {
+  width: 100%;
+  max-height: 92dvh;
+  border-bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+html.is-mobile .sheet-foot {
+  flex-wrap: wrap;
+  row-gap: var(--space-xs);
+}
+
+/* First frame: React has not set `is-mobile` yet, and a phone must not flash a
+   transparent gutter or a white body before it does. Nothing here depends on
+   the class, and no desktop window is ever this narrow (min width 860). */
+@media (max-width: 719px) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+  body {
+    background: var(--bg);
+  }
+  #root {
+    padding: 0;
+  }
+}
+
+

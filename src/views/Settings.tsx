@@ -53,8 +53,19 @@ export function Settings({
 
   // macOS authorizes once through a persistent helper; Windows runs the whole
   // app elevated, so the panel reports that instead of a pending prompt.
+  // Android has neither path — the app owns the process — so it must not promise
+  // an authorization the platform never asks for.
+  const android = status.platform === 'android';
   const windows = status.platform === 'windows';
-  const privilege = windows
+  const privilege = android
+    ? {
+        title: '运行权限',
+        badge: status.adminReady ? '正常' : '受限',
+        detail: status.adminReady
+          ? 'EasyTier 以应用自身权限运行，无需授权'
+          : '系统限制了部分操作，可能影响安装与启动',
+      }
+    : windows
     ? {
         title: '管理员权限',
         badge: status.adminReady ? '已提权' : '未提权',

@@ -54,6 +54,17 @@ pub const OPTIONAL_LIBRARIES: [&str; 2] = ["Packet.dll", "WinDivert64.sys"];
 #[cfg(target_os = "macos")]
 pub const OPTIONAL_LIBRARIES: [&str; 0] = [];
 
+// Nothing is downloaded on Android: the core is linked into the APK, so there
+// is no staged payload to hunt for.
+#[cfg(target_os = "android")]
+pub const REQUIRED_BINARIES: [&str; 0] = [];
+
+#[cfg(target_os = "android")]
+pub const REQUIRED_LIBRARIES: [&str; 0] = [];
+
+#[cfg(target_os = "android")]
+pub const OPTIONAL_LIBRARIES: [&str; 0] = [];
+
 // ── Shared layout ─────────────────────────────────────────────────────────
 
 /// Root the app manages. On macOS this is a fixed system path; on Windows it
@@ -84,6 +95,52 @@ pub fn log_root() -> PathBuf {
     install_root().join("logs")
 }
 
+// ── Android ───────────────────────────────────────────────────────────────
+
+// Unlike the desktop platforms there is no fixed system path to hard-code: the
+// app is sandboxed, so both roots come from Tauri's path resolver during setup
+// and are remembered here for everything that only has accessors to work with.
+#[cfg(target_os = "android")]
+use std::sync::OnceLock;
+
+#[cfg(target_os = "android")]
+static APP_DIRS: OnceLock<AndroidDirs> = OnceLock::new();
+
+#[cfg(target_os = "android")]
+struct AndroidDirs {
+    data: PathBuf,
+    logs: PathBuf,
+}
+
+#[cfg(target_os = "android")]
+pub fn set_app_dirs(data: PathBuf, logs: PathBuf) {
+    let _ = APP_DIRS.set(AndroidDirs { data, logs });
+}
+
+#[cfg(target_os = "android")]
+fn app_dirs() -> &'static AndroidDirs {
+    APP_DIRS.get_or_init(|| {
+        // `setup` runs before any command can ask for a path, so this branch is
+        // unreachable in the shipped app — but a fallback beats a panic if that
+        // ordering ever changes.
+        let base = std::env::temp_dir().join("easytier-manager");
+        AndroidDirs {
+            logs: base.join("logs"),
+            data: base,
+        }
+    })
+}
+
+#[cfg(target_os = "android")]
+pub fn install_root() -> PathBuf {
+    app_dirs().data.clone()
+}
+
+#[cfg(target_os = "android")]
+pub fn log_root() -> PathBuf {
+    app_dirs().logs.clone()
+}
+
 pub fn bin_dir() -> PathBuf {
     install_root().join("bin")
 }
@@ -101,6 +158,9 @@ pub const CORE_BINARY: &str = "easytier-core";
 
 #[cfg(windows)]
 pub const CORE_BINARY: &str = "easytier-core.exe";
+
+#[cfg(target_os = "android")]
+pub const CORE_BINARY: &str = "easytier-core";
 
 pub fn core_path() -> PathBuf {
     bin_dir().join(CORE_BINARY)

@@ -3,9 +3,11 @@
 //! macOS funnels every privileged action through a root LaunchDaemon helper
 //! (with a one-shot `osascript` authorization fallback) because the GUI runs as
 //! the invoking user. Windows launches the whole app elevated, so the same
-//! operations execute in-process.
+//! operations execute in-process. Android has neither an elevation prompt nor a
+//! service manager: the app *is* the core's host, so its module runs everything
+//! locally and the VPN consent dialog is the only thing the user is asked for.
 //!
-//! Both platform modules expose the same surface:
+//! Every platform module exposes the same surface:
 //!
 //! - `startup` / `refresh_admin` — establish privilege state for the UI
 //! - `prepare` — make the privilege boundary usable before a slow operation
@@ -13,11 +15,15 @@
 //! - `apply_service` — install/start/stop/restart the managed service
 //! - `write_config_server` / `clear_log` / `read_logs` — config and log access
 
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "android")]
+pub use android::*;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 #[cfg(windows)]

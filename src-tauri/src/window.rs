@@ -9,7 +9,9 @@
 //! once the frontend has painted. That is what keeps startup from flashing an
 //! empty dark frame and then visibly reshaping it.
 
-use tauri::{LogicalSize, Manager, PhysicalPosition, WebviewWindow};
+use tauri::Manager;
+#[cfg(desktop)]
+use tauri::{LogicalSize, PhysicalPosition, WebviewWindow};
 
 use crate::error::{Error, Result};
 
@@ -65,6 +67,7 @@ pub fn placement(prev: Rect, target_w: f64, target_h: f64, work: Rect) -> (f64, 
     (x, y)
 }
 
+#[cfg(desktop)]
 /// Fit the main window to the monitor it opens on. Leaves it hidden; the
 /// frontend shows it once it has something to show.
 pub fn apply_startup_size(window: &WebviewWindow) -> Result<()> {
@@ -135,6 +138,14 @@ pub fn show_main_window(app: tauri::AppHandle) -> Result<()> {
     let win_err = |op: &str, e: tauri::Error| Error::msg(format!("window {op}: {e}"));
     window.show().map_err(|e| win_err("show", e))?;
     window.set_focus().map_err(|e| win_err("focus", e))?;
+    Ok(())
+}
+
+/// Reveal the main window. On Android the single window is already on screen,
+/// so this is a no-op kept so the shell has one code path.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn show_main_window(_app: tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 

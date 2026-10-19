@@ -20,10 +20,19 @@ import {
   UpdateCore,
 } from './api';
 import type { AppUpdateInfo, DownloadProgress, Status, UpdateInfo } from './api';
+
+import {
+  AndroidAttachTunFd,
+  AndroidTunConfig,
+  PrepareVpn,
+  StartVpn,
+  StopVpn,
+} from './api';
 import { ClearLogsSheet } from './ClearLogsSheet';
 import { DEFAULT_GITHUB_PROXY } from './defaults';
 import { Icon } from './icons';
 import { VIEW_NAV, type View } from './navigation';
+import { isMobilePlatform, isNarrowViewport, watchNarrowViewport } from './platform';
 import { Rail } from './Rail';
 import { ThemeProvider } from './theme';
 import { installWindowDragHandler } from './windowDrag';
@@ -114,6 +123,15 @@ function Shell() {
   // False until the first status lands. The shell reads every field it renders,
   // so painting it before that would flash empty defaults and then correct them.
   const [ready, setReady] = useState(false);
+  // Whether the shell is wearing the phone shape. `status.platform` is the
+  // answer, but it arrives a poll late; until then the viewport width stands in,
+  // because the alternative is rendering a 208px rail and then yanking it to the
+  // bottom of the screen.
+  const [narrow, setNarrow] = useState(isNarrowViewport);
+  const mobile = status.platform ? isMobilePlatform(status.platform) : narrow;
+
+  /** Android owns the tunnel through VpnService; the desktop hands it to a service. */
+  const android = status.platform === 'android';
 
   // Background polling must not race an in-flight action, and it must not
   // overwrite a config the user is halfway through editing.
@@ -206,7 +224,23 @@ function Shell() {
   }, []);
 
   // The window is frameless, so dragging and the double-click zoom are ours.
-  useEffect(() => installWindowDragHandler(), []);
+  // A phone has no frameless window to drag: `startDragging` would be a no-op
+  // that still eats the first tap-and-hold, so the handler is not installed.
+  useEffect(() => {
+    if (mobile) return undefined;
+    return installWindowDragHandler();
+  }, [mobile]);
+
+  // The phone stylesheet keys every one of its rules off this single class, so
+  // the desktop rules above it never have to be restated — and a desktop window
+  // that never sets the class is provably unchanged.
+  useEffect(() => {
+    document.documentElement.classList.toggle('is-mobile', mobile);
+  }, [mobile]);
+
+  // Phones rotate between portrait and landscape; the width fallback is what
+  // decides the shell shape until the backend reports a platform.
+  useEffect(() => watchNarrowViewport(setNarrow), []);
 
   useEffect(() => {
     if (!message) return;
@@ -223,8 +257,108 @@ function Shell() {
   }
 
   /** The four lifecycle actions share one shape: run, then report the new status. */
+  /**
+   * Wait for the descriptor the `VpnService` reports once it is established.
+   *
+   * The plugin answers `start_vpn` before the service has a device, so the
+   * descriptor arrives later as a `vpn_service_start` event. Nothing waits on
+   * the promise after a timeout, hence the timer failing it rather than leaving
+   * the caller hanging.
+   */
+  function waitForTunFd(timeoutMs = 20000): { fd: Promise<number>; cancel: () => void } {
+    let unlisten: (() => void) | undefined;
+    let timer = 0;
+
+    const fd = new Promise<number>((resolve, reject) => {
+      timer = window.setTimeout(() => {
+        unlisten?.();
+        reject(new Error('等待 VPN 设备超时'));
+      }, timeoutMs);
+      void listen<{ fd: number }>('vpn_service_start', (event) => {
+        window.clearTimeout(timer);
+        unlisten?.();
+        resolve(event.payload.fd);
+      }).then(
+        (off) => {
+          unlisten = off;
+        },
+        () => undefined,
+      );
+    });
+
+    return {
+      fd,
+      cancel: () => {
+        window.clearTimeout(timer);
+        unlisten?.();
+      },
+    };
+  }
+
+  /**
+   * Android gets its tunnel from `VpnService`, so starting is a sequence rather
+   * than a call: bring the core up with no device, ask it what the device should
+   * look like, let the plugin establish the VPN (which is where the user
+   * consents), then hand the descriptor back so the core can use it.
+   */
+  async function startTunnelAndroid(): Promise<Status> {
+    const nextStatus = await StartService();
+    const plan = await AndroidTunConfig();
+    if (!plan.ipv4Addr) {
+      throw new Error('核心尚未分配到隧道地址，请稍后再试');
+    }
+
+    const permission = await PrepareVpn();
+    if (permission && permission.granted === false) {
+      throw new Error('未获得 VPN 授权，隧道未建立');
+    }
+
+    // Registered before the service starts: the descriptor is pushed from
+    // Kotlin, and an event nobody is listening for is simply lost.
+    const pending = waitForTunFd();
+    try {
+      const started = await StartVpn({
+        ipv4Addr: plan.ipv4Addr,
+        routes: plan.routes,
+        dns: plan.dns ?? undefined,
+      });
+      if (started?.errorMsg) {
+        throw new Error(
+          started.errorMsg === 'need_prepare' ? '需要先授予 VPN 权限' : started.errorMsg,
+        );
+      }
+      await AndroidAttachTunFd(await pending.fd);
+    } finally {
+      pending.cancel();
+    }
+
+    return nextStatus;
+  }
+
+  /** Tear the VPN down before the core: the instances stay, so a restart is cheap. */
+  async function stopTunnelAndroid(): Promise<Status> {
+    await StopVpn();
+    return StopService();
+  }
+
+  async function restartTunnelAndroid(): Promise<Status> {
+    await StopVpn();
+    await StopService();
+    return startTunnelAndroid();
+  }
+
+  /** The four lifecycle actions share one shape: run, then report the new status. */
   function statusAction(key: StatusAction) {
-    return run(key, STATUS_ACTIONS[key].call, (nextStatus) => {
+    const call =
+      key === 'start' && android
+        ? startTunnelAndroid
+        : key === 'stop' && android
+          ? stopTunnelAndroid
+          : key === 'restart' && android
+            ? restartTunnelAndroid
+            : STATUS_ACTIONS[key].call;
+
+    return run(key, call, (nextStatus) => {
       setStatus(nextStatus);
       setMessage(STATUS_ACTIONS[key].done);
     });
@@ -322,7 +456,7 @@ function Shell() {
   return (
     <>
       <div className="shell">
-        <Rail view={view} onSelectView={setView} />
+        <Rail view={view} onSelectView={setView} mobile={mobile} />
 
         <main className="pop stage">
         <header className="stage-head" data-app-drag>

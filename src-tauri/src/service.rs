@@ -1,16 +1,25 @@
 //! Service lifecycle for the managed EasyTier core, dispatched to the
 //! platform's native service manager: launchd on macOS, the Service Control
 //! Manager on Windows.
+//!
+//! Android has no equivalent to hand the core to — it runs inside the app (see
+//! [`crate::mobile_core`]) — so there this module only reports what the linked
+//! core is doing.
 
+#[cfg(not(target_os = "android"))]
 use std::process::Command;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+#[cfg(not(target_os = "android"))]
 use crate::paths::core_path;
+#[cfg(not(target_os = "android"))]
 use crate::util::file_exists;
 
+#[cfg(target_os = "android")]
+use crate::mobile_core;
 #[cfg(target_os = "macos")]
 use crate::launchd as native;
 #[cfg(windows)]
@@ -27,8 +36,9 @@ pub enum ServiceAction {
 
 impl ServiceAction {
     // Only the macOS one-shot authorization path re-invokes the binary with
-    // this argument; on Windows the app is already elevated.
-    #[cfg_attr(windows, allow(dead_code))]
+    // this argument; on Windows the app is already elevated, and on Android
+    // there is no second process to re-invoke.
+    #[cfg_attr(any(windows, target_os = "android"), allow(dead_code))]
     pub fn as_arg(self) -> &'static str {
         match self {
             Self::Install => "install",
@@ -50,31 +60,59 @@ impl ServiceAction {
 }
 
 /// Apply a service lifecycle operation through the platform service manager.
+///
+/// Desktop only: Android's lifecycle is async and lives in
+/// [`crate::platform::apply_service`], because starting the linked core has to
+/// await the config server.
+#[cfg(desktop)]
 pub fn apply_service_action(action: ServiceAction) -> Result<()> {
     native::apply_service_action(action)
 }
 
 /// Query the managed service, returning `(installed, running, pid)`.
+///
+/// Android reports the linked core instead: "installed" is always true (it is
+/// part of the APK), "running" means the TUN device is attached and carrying
+/// traffic, and there is no pid to report.
 pub fn service_status() -> (bool, bool, i32) {
-    native::service_status()
+    #[cfg(target_os = "android")]
+    {
+        (
+            mobile_core::is_started(),
+            mobile_core::is_running(),
+            0,
+        )
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        native::service_status()
+    }
 }
 
 /// Ask the installed core binary for its version, e.g. `2.6.4`.
 pub fn installed_version() -> String {
-    if !file_exists(&core_path()) {
-        return String::new();
+    #[cfg(target_os = "android")]
+    {
+        // Linked in, so this is a constant rather than something to spawn.
+        mobile_core::version().to_string()
     }
+    #[cfg(not(target_os = "android"))]
+    {
+        if !file_exists(&core_path()) {
+            return String::new();
+        }
 
-    let Ok(output) = version_command().output() else {
-        return String::new();
-    };
-    if !output.status.success() {
-        return String::new();
+        let Ok(output) = version_command().output() else {
+            return String::new();
+        };
+        if !output.status.success() {
+            return String::new();
+        }
+
+        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+        first_version(&text)
     }
-
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    first_version(&text)
 }
 
 /// `easytier-core --version`, without a console window.

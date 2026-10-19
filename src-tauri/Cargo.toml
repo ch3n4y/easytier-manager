@@ -6,6 +6,12 @@ authors = ["EasyTier Manager Contributors"]
 edition = "2021"
 rust-version = "1.77"
 
+# Mobile targets link the app into a native library the platform loads itself;
+# the desktop binary keeps reaching the same code through `rlib`.
+[lib]
+name = "easytier_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -13,6 +19,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 # Self-update for the manager bundle. `updater_builder` returns the builder
 # directly rather than a `Result` from 2.11 on, so the minor is pinned.
+# Desktop only — the updater plugin supports Windows, Linux and macOS, and
+# `app_update` is compiled out everywhere else (see `lib.rs`).
 tauri-plugin-updater = "2.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -21,7 +29,7 @@ zip = "2"
 regex = "1"
 walkdir = "2"
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "sync"] }
 
 # macOS: the privileged helper (launchd + unix socket) and the launchd service
 # manager. `home` is pinned because newer 0.5.x releases require Rust 1.88 while
@@ -43,3 +51,19 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security",
     "Win32_System_JobObjects",
 ] }
+
+# Android: the core cannot be installed as a service, and a non-root app only
+# gets a TUN device from `VpnService` — whose file descriptor has to be attached
+# to an instance living in *this* process. So the core is linked in instead of
+# downloaded (see `mobile_core.rs`), and the plugin that owns the `VpnService`
+# comes with it. `easytier` on crates.io is a stale 2.0.x snapshot without the
+# mobile TUN API, so these are pinned to the release tag the app is built
+# against; moving the tag is part of a core update.
+[target.'cfg(target_os = "android")'.dependencies]
+easytier = { git = "https://github.com/EasyTier/EasyTier", tag = "v2.7.0" }
+easytier-core = { git = "https://github.com/EasyTier/EasyTier", tag = "v2.7.0" }
+tauri-plugin-vpnservice = { git = "https://github.com/EasyTier/EasyTier", tag = "v2.7.0" }
+anyhow = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "registry"] }

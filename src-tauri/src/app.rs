@@ -3,21 +3,27 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+#[cfg(desktop)]
 use tauri_plugin_updater::Update;
-use tempfile::TempDir;
 
+#[cfg(desktop)]
 use crate::app_update::{self, AppUpdateInfo};
 use crate::config::{read_config_files, ConfigPayload};
 use crate::error::{Error, Result};
 use crate::paths::core_path;
 use crate::platform;
-use crate::release::{
-    download_and_extract, latest_asset, normalize_version, stage_binaries, stage_install_files,
-    UpdateInfo,
-};
 use crate::service::{self, ServiceAction};
 use crate::settings::{self, Settings};
 use crate::util::file_exists;
+
+#[cfg(desktop)]
+use tempfile::TempDir;
+
+#[cfg(desktop)]
+use crate::release::{
+    download_and_extract, latest_asset, normalize_version, stage_binaries, stage_install_files,
+};
+use crate::release::UpdateInfo;
 
 #[derive(Default)]
 pub struct AdminState {
@@ -26,7 +32,7 @@ pub struct AdminState {
     /// Set once the persistent helper proves uninstallable, so later operations
     /// skip the doomed install prompt and authorize exactly once instead.
     /// macOS-only: Windows has no fallback authorization path.
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(any(windows, target_os = "android"), allow(dead_code))]
     pub one_shot_only: bool,
 }
 
@@ -36,6 +42,9 @@ pub struct AppState {
     /// The manager release `check_app_update` resolved, held until the user
     /// decides to install it. Re-resolving at install time could install a
     /// version other than the one the panel advertised.
+    ///
+    /// Desktop only: there is no in-app update channel for an APK.
+    #[cfg(desktop)]
     pub pending_update: Mutex<Option<Update>>,
 }
 
@@ -43,6 +52,8 @@ pub struct AppState {
 const PLATFORM: &str = "macos";
 #[cfg(windows)]
 const PLATFORM: &str = "windows";
+#[cfg(target_os = "android")]
+const PLATFORM: &str = "android";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,8 +121,23 @@ pub(crate) fn set_one_shot_only(state: &AppState, value: bool) {
     admin.one_shot_only = value;
 }
 
+/// Whether the core is available to run.
+///
+/// Desktop asks the filesystem, because the core is a downloaded binary.
+/// Android links it into the APK, so it is always there.
+fn core_installed() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        true
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        file_exists(&core_path())
+    }
+}
+
 fn build_status(admin_ready: bool, admin_error: String, app_version: String) -> Status {
-    let installed = file_exists(&core_path());
+    let installed = core_installed();
     let (loaded, running, pid) = service::service_status();
 
     Status {
@@ -174,6 +200,7 @@ pub(crate) struct DownloadProgress {
 
 /// A reporter that forwards download progress to the frontend. Release assets
 /// are large and often slow, so without this the UI looks wedged.
+#[cfg(desktop)]
 fn progress_reporter(app: &AppHandle) -> impl Fn(u64, Option<u64>) + 'static {
     let app = app.clone();
     move |received, total| {
@@ -185,30 +212,41 @@ fn progress_reporter(app: &AppHandle) -> impl Fn(u64, Option<u64>) + 'static {
 pub async fn get_status(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     let status = current_status(&app, state.inner()).await?;
     // The tray is the only sign of life once the window is hidden.
+    #[cfg(desktop)]
     crate::tray::update_tooltip(&app, &status);
     Ok(status)
 }
 
 #[tauri::command]
 pub async fn install_latest(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
-    platform::prepare(state.inner()).await?;
+    #[cfg(desktop)]
+    {
+        platform::prepare(state.inner()).await?;
 
-    let (release, asset) = latest_asset().await?;
+        let (release, asset) = latest_asset().await?;
 
-    let stage = TempDir::new()?;
-    download_and_extract(
-        &asset.browser_download_url,
-        stage.path(),
-        progress_reporter(&app),
-    )
-    .await?;
+        let stage = TempDir::new()?;
+        download_and_extract(
+            &asset.browser_download_url,
+            stage.path(),
+            progress_reporter(&app),
+        )
+        .await?;
 
-    let stage_path = stage.path().to_path_buf();
-    let tag = release.tag_name.clone();
-    run_blocking(move || stage_install_files(&stage_path, &tag)).await?;
+        let stage_path = stage.path().to_path_buf();
+        let tag = release.tag_name.clone();
+        run_blocking(move || stage_install_files(&stage_path, &tag)).await?;
 
-    platform::install_privileged(state.inner(), stage.path()).await?;
-    apply_and_report(&app, state.inner(), ServiceAction::Install, SERVICE_SETTLE_MS).await
+        platform::install_privileged(state.inner(), stage.path()).await?;
+        apply_and_report(&app, state.inner(), ServiceAction::Install, SERVICE_SETTLE_MS).await
+    }
+    // The core is part of the APK, so installing means laying out the config
+    // files (done at startup) and starting it.
+    #[cfg(target_os = "android")]
+    {
+        platform::prepare(state.inner()).await?;
+        apply_and_report(&app, state.inner(), ServiceAction::Install, SERVICE_SETTLE_MS).await
+    }
 }
 
 #[tauri::command]
@@ -253,70 +291,102 @@ pub async fn save_config(
 
 #[tauri::command]
 pub async fn check_core_update() -> Result<UpdateInfo> {
-    let (release, asset) = latest_asset().await?;
+    #[cfg(desktop)]
+    {
+        let (release, asset) = latest_asset().await?;
 
-    run_blocking(move || {
-        let current = service::installed_version();
-        let latest = normalize_version(&release.tag_name);
-        Ok(UpdateInfo {
-            installed: file_exists(&core_path()),
-            has_update: current.is_empty() || current != latest,
-            current_version: current,
-            latest_version: latest,
-            asset_name: asset.name,
+        run_blocking(move || {
+            let current = service::installed_version();
+            let latest = normalize_version(&release.tag_name);
+            Ok(UpdateInfo {
+                installed: file_exists(&core_path()),
+                has_update: current.is_empty() || current != latest,
+                current_version: current,
+                latest_version: latest,
+                asset_name: asset.name,
+            })
         })
-    })
-    .await
+        .await
+    }
+    // The linked core cannot be updated apart from the app, so there is never a
+    // newer core than the one this build shipped with.
+    #[cfg(target_os = "android")]
+    {
+        run_blocking(|| {
+            let version = service::installed_version();
+            Ok(UpdateInfo {
+                installed: true,
+                has_update: false,
+                current_version: version.clone(),
+                latest_version: version,
+                asset_name: String::new(),
+            })
+        })
+        .await
+    }
 }
 
 #[tauri::command]
 pub async fn update_core(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
-    platform::prepare(state.inner()).await?;
+    #[cfg(desktop)]
+    {
+        platform::prepare(state.inner()).await?;
 
-    let before = current_status(&app, state.inner()).await?;
+        let before = current_status(&app, state.inner()).await?;
 
-    let (release, asset) = latest_asset().await?;
-    if before.version == normalize_version(&release.tag_name) {
-        return Ok(before);
-    }
-
-    let stage = TempDir::new()?;
-    download_and_extract(
-        &asset.browser_download_url,
-        stage.path(),
-        progress_reporter(&app),
-    )
-    .await?;
-
-    let stage_path = stage.path().to_path_buf();
-    run_blocking(move || stage_binaries(&stage_path)).await?;
-
-    if before.loaded {
-        platform::apply_service(state.inner(), ServiceAction::Stop).await?;
-    }
-
-    let update_result = platform::update_privileged(state.inner(), stage.path()).await;
-    let restart_result = if before.running {
-        platform::apply_service(state.inner(), ServiceAction::Start).await
-    } else {
-        Ok(())
-    };
-
-    match (update_result, restart_result) {
-        (Err(update), Err(restart)) => {
-            return Err(Error::msg(format!(
-                "update failed: {update}; restoring service failed: {restart}"
-            )))
+        let (release, asset) = latest_asset().await?;
+        if before.version == normalize_version(&release.tag_name) {
+            return Ok(before);
         }
-        (Err(update), _) => return Err(update),
-        (_, Err(restart)) => return Err(restart),
-        (Ok(()), Ok(())) => {}
+
+        let stage = TempDir::new()?;
+        download_and_extract(
+            &asset.browser_download_url,
+            stage.path(),
+            progress_reporter(&app),
+        )
+        .await?;
+
+        let stage_path = stage.path().to_path_buf();
+        run_blocking(move || stage_binaries(&stage_path)).await?;
+
+        if before.loaded {
+            platform::apply_service(state.inner(), ServiceAction::Stop).await?;
+        }
+
+        let update_result = platform::update_privileged(state.inner(), stage.path()).await;
+        let restart_result = if before.running {
+            platform::apply_service(state.inner(), ServiceAction::Start).await
+        } else {
+            Ok(())
+        };
+
+        match (update_result, restart_result) {
+            (Err(update), Err(restart)) => {
+                return Err(Error::msg(format!(
+                    "update failed: {update}; restoring service failed: {restart}"
+                )))
+            }
+            (Err(update), _) => return Err(update),
+            (_, Err(restart)) => return Err(restart),
+            (Ok(()), Ok(())) => {}
+        }
+        settle_and_report(&app, state.inner(), SERVICE_RESTART_SETTLE_MS).await
     }
-    settle_and_report(&app, state.inner(), SERVICE_RESTART_SETTLE_MS).await
+    // Nothing to fetch: the core is linked in, and replacing it means replacing
+    // the app. Say so instead of pretending to succeed.
+    #[cfg(target_os = "android")]
+    {
+        let _ = (&app, &state);
+        Err(Error::msg(
+            "EasyTier 核心随应用一起升级，请通过应用商店或重新安装 APK 更新",
+        ))
+    }
 }
 
 /// Resolve the manager's own release channel and remember what it offered, so
 /// the install command can use exactly this release.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn check_app_update(app: AppHandle, state: State<'_, AppState>) -> Result<AppUpdateInfo> {
     let update = app_update::check(&app).await?;
@@ -337,6 +407,7 @@ pub async fn check_app_update(app: AppHandle, state: State<'_, AppState>) -> Res
 /// Windows never reports back: the NSIS installer takes over and the process
 /// exits, relaunching the app once the new version is in place. macOS replaces
 /// the bundle and relaunches from the backend.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn install_app_update(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let update = {
@@ -382,6 +453,9 @@ const LOG_PERMISSION_HINT: &str =
     "无法读取日志：日志文件权限不正确。请在系统弹窗中允许授权，或点击「安装」修复后重试。";
 #[cfg(windows)]
 const LOG_PERMISSION_HINT: &str = "无法读取日志：服务正在占用该日志文件，请稍后重试。";
+#[cfg(target_os = "android")]
+const LOG_PERMISSION_HINT: &str =
+    "无法读取日志：应用无法访问自己的日志目录，请尝试重启应用。";
 
 #[tauri::command]
 pub async fn clear_logs(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
@@ -407,4 +481,66 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Setting
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+/// What `VpnService` has to be asked for on Android: the addresses, routes and
+/// DNS the running instances expect.
+///
+/// The shell calls this after starting the core, hands the result to the
+/// `vpnservice` plugin, and passes the descriptor it gets back to
+/// [`android_attach_tun_fd`].
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn android_tun_config() -> Result<TunPlan> {
+    let plan = crate::mobile_core::tun_config().await;
+    Ok(TunPlan::from(plan))
+}
+
+/// Attach the established TUN device to the running instances.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn android_attach_tun_fd(fd: i32) -> Result<TunPlan> {
+    let plan = crate::mobile_core::attach_tun_fd(fd)
+        .await
+        .map_err(|err| Error::msg(format!("{err:#}")))?;
+    Ok(TunPlan::from(plan))
+}
+
+/// The TUN plan in the shape the frontend and the plugin both want.
+///
+/// `addresses` carries the CIDR forms the instances claimed; the plugin's
+/// `StartVpnArgs` only accepts a single address, so the first one is separately
+/// exposed as `ipv4Addr` rather than making the shell slice strings.
+#[cfg(target_os = "android")]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunPlan {
+    pub addresses: Vec<String>,
+    pub ipv4_addr: Option<String>,
+    pub routes: Vec<String>,
+    pub dns: Option<String>,
+    pub instance_ids: Vec<String>,
+    pub rejected: Vec<String>,
+}
+
+#[cfg(target_os = "android")]
+impl From<easytier::instance::factory::MobileTunConfig> for TunPlan {
+    fn from(config: easytier::instance::factory::MobileTunConfig) -> Self {
+        Self {
+            ipv4_addr: config.addresses.first().cloned(),
+            addresses: config.addresses,
+            routes: config.routes,
+            dns: config.dns,
+            instance_ids: config
+                .instance_ids
+                .into_iter()
+                .map(|id| id.to_string())
+                .collect(),
+            rejected: config
+                .rejected
+                .into_iter()
+                .map(|rejected| rejected.error)
+                .collect(),
+        }
+    }
 }
