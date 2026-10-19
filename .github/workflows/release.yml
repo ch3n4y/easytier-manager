@@ -198,13 +198,17 @@ jobs:
           test -x "$BIN/aarch64-linux-android24-clang" || { echo "::error::NDK toolchain missing at $BIN"; exit 1; }
 
           export NDK_HOME="$NDK"
-          export "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android=--sysroot=$SYSROOT -I$SYSROOT/usr/include -I$SYSROOT/usr/include/aarch64-linux-android"
-          export "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=--sysroot=$SYSROOT -I$SYSROOT/usr/include -I$SYSROOT/usr/include/aarch64-linux-android"
           export CC_aarch64_linux_android="$BIN/aarch64-linux-android24-clang"
+          export CXX_aarch64_linux_android="$BIN/aarch64-linux-android24-clang++"
           export AR_aarch64_linux_android="$BIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$BIN/aarch64-linux-android24-clang"
 
-          pnpm tauri android build --apk --target aarch64
+          # bash refuses to export a name containing dashes, so the per-target
+          # clang arguments travel with the command through env(1) instead.
+          CLANG_ARGS="--sysroot=$SYSROOT -I$SYSROOT/usr/include -I$SYSROOT/usr/include/aarch64-linux-android"
+          env "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android=$CLANG_ARGS" \
+            "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=$CLANG_ARGS" \
+            pnpm tauri android build --apk --target aarch64
 
       - name: Verify the APK is signed
         run: |
