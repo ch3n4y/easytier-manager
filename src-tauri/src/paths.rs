@@ -211,7 +211,10 @@ latency_first = false
 enable_exit_node = false
 no_tun = false
 use_smoltcp = false
-foreign_network_whitelist = "*"
+# v2.7.0 renamed this flag; the pre-2.7 spelling is rejected outright by its
+# parser, and only surfaces once this config is actually loaded — config-server
+# mode never loads it, which is why the breakage went unnoticed.
+relay_network_whitelist = "*"
 disable_p2p = false
 p2p_only = false
 relay_all_peer_rpc = false
@@ -515,5 +518,20 @@ mod tests {
         // The fragment verifies its own result, so a failed repair fails the
         // privileged operation instead of surfacing as "no permission" later.
         assert!(log_permission_script().contains("test -r"));
+    }
+
+    /// The bundled config is handed straight to the core, so a field name it
+    /// does not recognise is a startup failure, not a warning. In 2.7 the flag
+    /// `foreign_network_whitelist` became `relay_network_whitelist`, and the
+    /// stale name made local-config mode fail on first launch.
+    ///
+    /// The core's parser is only reachable from the Android build, so this
+    /// guards the name rather than the parse; the real check is launching on a
+    /// device with no config server set.
+    #[test]
+    fn default_config_uses_current_flag_names() {
+        let config = default_config();
+        assert!(config.contains("relay_network_whitelist"), "{config}");
+        assert!(!config.contains("foreign_network_whitelist"), "{config}");
     }
 }
